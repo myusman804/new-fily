@@ -20,8 +20,8 @@ module.exports = (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(actualToken, process.env.JWT_SECRET) // Use JWT_SECRET from .env
 
-    // Attach user from token payload to request object
-    req.user = decoded.user
+    req.userId = decoded.userId
+    req.userEmail = decoded.email
     next()
   } catch (err) {
     res.status(401).json({ message: "Token is not valid" })

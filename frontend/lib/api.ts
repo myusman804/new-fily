@@ -1,4 +1,4 @@
-const BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3000/api/auth"
+export const BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3000/api/auth"
 
 async function makeRequestWithTimeout(url: string, options: RequestInit, timeoutMs = 10000) {
   const controller = new AbortController()
@@ -54,6 +54,10 @@ async function makeRequest(url: string, options: RequestInit) {
       url: url,
     }
   }
+}
+
+export function getBaseApiUrl(): string {
+  return BACKEND_BASE_URL
 }
 
 export async function registerUser(data: { name: string; email: string; password: string }) {

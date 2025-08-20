@@ -1,14 +1,16 @@
 "use client"
 
 import React, { useState } from "react"
-import { View, Text, ScrollView, TouchableOpacity, Alert, Modal } from "react-native"
+import { View, Text, ScrollView, TouchableOpacity, Alert, Modal, TextInput, KeyboardAvoidingView } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useTheme } from "@/components/theme-context"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, FileText, X, CheckCircle, AlertCircle, Coins, DollarSign, CreditCard, Lock } from "lucide-react-native"
-import { getUserData, saveUserData } from "@/lib/auth-storage"
+import { getUserData, saveUserData, getAuthToken } from "@/lib/auth-storage"
 import * as DocumentPicker from "expo-document-picker"
+import { Linking } from "react-native"
+import { getBaseApiUrl } from "@/lib/api"
 
 interface UploadedFile {
   id: string
@@ -18,6 +20,16 @@ interface UploadedFile {
   uploadProgress: number
   status: "uploading" | "completed" | "error"
   price: number
+  downloadLink?: string
+}
+
+interface PDFFormData {
+  title: string
+  course: string
+  level: string
+  topic: string
+  year: string
+  file: any
 }
 
 export default function UploadPage() {
@@ -28,6 +40,17 @@ export default function UploadPage() {
   const [hasPaidForUpload, setHasPaidForUpload] = useState<boolean>(false)
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false)
   const [isProcessingPayment, setIsProcessingPayment] = useState<boolean>(false)
+  const [authToken, setAuthToken] = useState<string>("")
+
+  const [formData, setFormData] = useState<PDFFormData>({
+    title: "",
+    course: "",
+    level: "",
+    topic: "",
+    year: "",
+    file: null,
+  })
+  const [showUploadForm, setShowUploadForm] = useState<boolean>(false)
 
   React.useEffect(() => {
     const loadUserData = async () => {
@@ -38,36 +61,18 @@ export default function UploadPage() {
       if (userData?.hasPaidForUpload) {
         setHasPaidForUpload(userData.hasPaidForUpload)
       }
+
+      const token = await getAuthToken()
+      if (token) {
+        setAuthToken(token)
+        console.log("[v0] Auth token: Present")
+      } else {
+        console.log("[v0] Auth token: Missing")
+      }
     }
+
     loadUserData()
   }, [])
-
-  const handlePayment = async () => {
-    setIsProcessingPayment(true)
-
-    // Simulate payment processing
-    setTimeout(async () => {
-      try {
-        // Update user data to mark as paid
-        const userData = await getUserData()
-        const updatedUserData = {
-          ...userData,
-          hasPaidForUpload: true,
-          coins: userData?.coins || 0, // Keep existing coins
-        }
-
-        await saveUserData(updatedUserData)
-        setHasPaidForUpload(true)
-        setShowPaymentModal(false)
-        setIsProcessingPayment(false)
-
-        Alert.alert("Payment Successful!", "You can now upload PDF files to the platform.")
-      } catch (error) {
-        setIsProcessingPayment(false)
-        Alert.alert("Payment Failed", "Please try again.")
-      }
-    }, 2000)
-  }
 
   const PaymentModal = () => (
     <Modal
@@ -114,7 +119,6 @@ export default function UploadPage() {
               style={{
                 fontSize: 24,
                 fontWeight: "bold",
-                //@ts-ignore
                 color: colors.text,
                 textAlign: "center",
                 marginBottom: 8,
@@ -147,7 +151,6 @@ export default function UploadPage() {
               style={{
                 fontSize: 18,
                 fontWeight: "600",
-                //@ts-ignore
                 color: colors.text,
                 marginBottom: 12,
               }}
@@ -186,7 +189,7 @@ export default function UploadPage() {
                 marginLeft: 8,
               }}
             >
-              one-time payment
+              one-time
             </Text>
           </View>
 
@@ -203,40 +206,79 @@ export default function UploadPage() {
             >
               <Text
                 style={{
-                    //@ts-ignore
                   color: colors.primaryForeground,
                   fontWeight: "600",
                   fontSize: 16,
                   textAlign: "center",
                 }}
               >
-                {isProcessingPayment ? "Processing Payment..." : "Pay $9.99 & Unlock"}
+                {isProcessingPayment ? "Processing..." : "Purchase Now"}
               </Text>
             </Button>
 
-            {!isProcessingPayment && (
-              <TouchableOpacity
-                onPress={() => setShowPaymentModal(false)}
+            <TouchableOpacity
+              onPress={() => setShowPaymentModal(false)}
+              disabled={isProcessingPayment}
+              style={{
+                paddingVertical: 12,
+                alignItems: "center",
+              }}
+            >
+              <Text
                 style={{
-                  paddingVertical: 12,
-                  alignItems: "center",
+                  color: colors.textSecondary,
+                  fontSize: 16,
                 }}
               >
-                <Text
-                  style={{
-                    color: colors.textSecondary,
-                    fontSize: 16,
-                  }}
-                >
-                  Maybe Later
-                </Text>
-              </TouchableOpacity>
-            )}
+                Maybe Later
+              </Text>
+            </TouchableOpacity>
           </View>
         </Card>
       </View>
     </Modal>
   )
+
+  const handlePayment = async () => {
+    setIsProcessingPayment(true)
+
+    try {
+      console.log("[v0] Processing payment...")
+
+      const baseUrl = getBaseApiUrl() // Use the declared getBaseApiUrl variable
+      const response = await fetch(`${baseUrl}/api/auth/update-upload-payment`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ hasPaidForUpload: true }),
+      })
+
+      if (response.ok) {
+        console.log("[v0] Payment successful")
+        setHasPaidForUpload(true)
+        setShowPaymentModal(false)
+
+        // Update local storage
+        const userData = await getUserData()
+        if (userData) {
+          await saveUserData({ ...userData, hasPaidForUpload: true })
+        }
+
+        Alert.alert("Success", "Payment processed successfully! You can now upload PDF files.")
+      } else {
+        const errorData = await response.json()
+        console.log("[v0] Payment error:", errorData.message)
+        Alert.alert("Payment Error", errorData.message || "Failed to process payment")
+      }
+    } catch (error) {
+      console.log("[v0] Payment error:", error)
+      Alert.alert("Payment Error", "Network error. Please try again.")
+    } finally {
+      setIsProcessingPayment(false)
+    }
+  }
 
   const LockedUploadArea = () => (
     <Card
@@ -244,8 +286,6 @@ export default function UploadPage() {
         marginBottom: 24,
         backgroundColor: colors.cardBackground,
         borderColor: colors.border,
-        borderWidth: 2,
-        borderRadius: 12,
         padding: 40,
         alignItems: "center",
       }}
@@ -268,7 +308,6 @@ export default function UploadPage() {
         style={{
           fontSize: 20,
           fontWeight: "600",
-          //@ts-ignore
           color: colors.text,
           marginBottom: 8,
           textAlign: "center",
@@ -301,7 +340,6 @@ export default function UploadPage() {
       >
         <Text
           style={{
-            //@ts-ignore
             color: colors.primaryForeground,
             fontWeight: "600",
             fontSize: 16,
@@ -367,81 +405,377 @@ export default function UploadPage() {
         return
       }
 
-      const price = calculatePrice(file.size)
-      console.log("[v0] Calculated price:", price)
-
-      const newFile: UploadedFile = {
-        id: Date.now().toString(),
-        name: file.name,
-        size: formatFileSize(file.size),
-        sizeBytes: file.size,
-        uploadProgress: 0,
-        status: "uploading",
-        price: price,
-      }
-
-      console.log("[v0] Adding new file:", newFile)
-      setUploadedFiles((prev) => [...prev, newFile])
-
-      // Simulate upload progress
-      const interval = setInterval(() => {
-        setUploadedFiles((prev) =>
-          prev.map((f) => (f.id === newFile.id ? { ...f, uploadProgress: Math.min(f.uploadProgress + 20, 100) } : f)),
-        )
-      }, 500)
-
-      // Complete upload after 3 seconds
-      setTimeout(() => {
-        clearInterval(interval)
-        setUploadedFiles((prev) =>
-          prev.map((f) => (f.id === newFile.id ? { ...f, uploadProgress: 100, status: "completed" } : f)),
-        )
-        console.log("[v0] File upload completed")
-      }, 3000)
+      // Set the file in form data and show the form
+      setFormData((prev) => ({ ...prev, file }))
+      setShowUploadForm(true)
     } catch (error) {
-      console.error("[v0] Error picking document:", error)
-      //@ts-ignore
-      Alert.alert("Error", `Failed to select document: ${error.message || "Unknown error"}. Please try again.`)
+      console.log("[v0] Error selecting file:", error)
+      Alert.alert("Error", "Failed to select file. Please try again.")
     }
+  }
+
+  const handleFormSubmit = async () => {
+    // Validate form
+    if (
+      !formData.title.trim() ||
+      !formData.course.trim() ||
+      !formData.level.trim() ||
+      !formData.topic.trim() ||
+      !formData.year.trim() ||
+      !formData.file
+    ) {
+      Alert.alert("Error", "Please fill in all fields and select a PDF file.")
+      return
+    }
+
+    const price = calculatePrice(formData.file.size)
+    console.log("[v0] Calculated price:", price)
+
+    const newFile: UploadedFile = {
+      id: Date.now().toString(),
+      name: formData.file.name,
+      size: formatFileSize(formData.file.size),
+      sizeBytes: formData.file.size,
+      uploadProgress: 0,
+      status: "uploading",
+      price: price,
+    }
+
+    console.log("[v0] Adding new file:", newFile)
+    setUploadedFiles((prev) => [...prev, newFile])
+    setShowUploadForm(false)
+
+    // Start upload
+    await uploadFile(formData.file, newFile.id, formData)
+  }
+
+  const uploadFile = async (file: any, fileId: string, pdfDetails: PDFFormData) => {
+    try {
+      console.log("[v0] File object for upload:", {
+        uri: file.uri,
+        type: file.mimeType || "application/pdf",
+        name: file.name,
+      })
+
+      const baseUrl = getBaseApiUrl() // Use the declared getBaseApiUrl variable
+      const uploadUrl = `${baseUrl}/api/pdf/upload`
+      console.log("[v0] Uploading to:", uploadUrl)
+
+      if (!authToken) {
+        console.log("[v0] Auth token: Missing")
+        throw new Error("Authentication token not found")
+      }
+      console.log("[v0] Auth token: Present")
+
+      const formData = new FormData()
+      formData.append("pdf", {
+        uri: file.uri,
+        type: "application/pdf",
+        name: file.name,
+      } as any)
+
+      // Add PDF details to form data
+      formData.append("title", pdfDetails.title)
+      formData.append("course", pdfDetails.course)
+      formData.append("level", pdfDetails.level)
+      formData.append("topic", pdfDetails.topic)
+      formData.append("year", pdfDetails.year)
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 minutes timeout
+
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setUploadedFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileId ? { ...f, uploadProgress: Math.min(f.uploadProgress + Math.random() * 15, 90) } : f,
+          ),
+        )
+      }, 1000)
+
+      const response = await fetch(uploadUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: formData,
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeoutId)
+      clearInterval(progressInterval)
+
+      console.log("[v0] Upload response status:", response.status)
+      console.log("[v0] Upload response headers:", Object.fromEntries(response.headers.entries()))
+
+      const responseData = await response.json()
+      console.log("[v0] Upload response data:", responseData)
+
+      if (response.ok) {
+        console.log("[v0] Upload successful")
+        setUploadedFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileId
+              ? { ...f, uploadProgress: 100, status: "completed", downloadLink: responseData.downloadLink }
+              : f,
+          ),
+        )
+        Alert.alert("Success", "PDF uploaded successfully!")
+      } else {
+        console.log("[v0] Upload failed:", responseData.message)
+        setUploadedFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "error" } : f)))
+        Alert.alert("Upload Error", responseData.message || "Failed to upload PDF")
+      }
+    } catch (error: any) {
+      console.log("[v0] Upload error:", error)
+      setUploadedFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "error" } : f)))
+
+      if (error.name === "AbortError") {
+        Alert.alert("Upload Error", "Upload timed out. Please try again with a smaller file.")
+      } else if (error.message?.includes("Network request failed")) {
+        Alert.alert("Upload Error", "Network connection failed. Please check your internet connection and try again.")
+      } else {
+        Alert.alert("Upload Error", error.message || "Failed to upload PDF")
+      }
+    }
+
+    // Reset form
+    setFormData({
+      title: "",
+      course: "",
+      level: "",
+      topic: "",
+      year: "",
+      file: null,
+    })
   }
 
   const removeFile = (fileId: string) => {
     setUploadedFiles((prev) => prev.filter((file) => file.id !== fileId))
   }
 
-  const handleUploadAll = () => {
-    const completedFiles = uploadedFiles.filter((file) => file.status === "completed")
-    const totalPrice = completedFiles.reduce((sum, file) => sum + file.price, 0)
-
-    Alert.alert("Upload Files", `Upload ${completedFiles.length} file(s) for $${totalPrice.toFixed(2)}?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Upload",
-        onPress: () => {
-          // Here you would integrate with your backend
-          Alert.alert("Success", "Files uploaded successfully!")
-          setUploadedFiles([])
-        },
-      },
-    ])
+  const getTotalPrice = (): number => {
+    return uploadedFiles.reduce((total, file) => total + file.price, 0)
   }
 
-  const getTotalPrice = (): number => {
-    return uploadedFiles.filter((file) => file.status === "completed").reduce((sum, file) => sum + file.price, 0)
+  const handleUploadAll = () => {
+    Alert.alert("Upload Complete", `All files uploaded successfully! Total cost: $${getTotalPrice().toFixed(2)}`)
+  }
+
+  const handleDownloadFile = async (fileId: string) => {
+    const file = uploadedFiles.find((f) => f.id === fileId)
+    if (file?.downloadLink) {
+      try {
+        await Linking.openURL(file.downloadLink)
+      } catch (error) {
+        Alert.alert("Error", "Could not open download link")
+      }
+    }
   }
 
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "completed":
-        //@ts-ignore
-        return <CheckCircle color={colors.success || "#10b981"} size={20} />
+        return <CheckCircle color={colors.primary} size={20} />
       case "error":
-        //@ts-ignore
         return <AlertCircle color={colors.destructive} size={20} />
       default:
         return <Upload color={colors.primary} size={20} />
     }
   }
+
+  const PDFDetailsForm = () => (
+    <KeyboardAvoidingView>
+    <Modal
+      visible={showUploadForm}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowUploadForm(false)}
+    >
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.5)",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 20,
+        }}
+      >
+        <Card
+          style={{
+            width: "100%",
+            maxWidth: 400,
+            backgroundColor: colors.cardBackground,
+            borderColor: colors.border,
+            padding: 24,
+            borderRadius: 16,
+            maxHeight: "80%",
+          }}
+        >
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <Text
+              style={{
+                fontSize: 24,
+                fontWeight: "bold",
+                color: colors.text,
+                textAlign: "center",
+                marginBottom: 20,
+              }}
+            >
+              PDF Details
+            </Text>
+
+            <View style={{ gap: 16 }}>
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 8 }}>Title *</Text>
+                <TextInput
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 8,
+                    padding: 12,
+                    fontSize: 16,
+                    color: colors.text,
+                    backgroundColor: colors.background,
+                  }}
+                  placeholder="Enter document title"
+                  placeholderTextColor={colors.textSecondary}
+                  value={formData.title}
+                  onChangeText={(text) => setFormData((prev) => ({ ...prev, title: text }))}
+                />
+              </View>
+
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 8 }}>Course *</Text>
+                <TextInput
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 8,
+                    padding: 12,
+                    fontSize: 16,
+                    color: colors.text,
+                    backgroundColor: colors.background,
+                  }}
+                  placeholder="e.g., Mathematics, Physics, Chemistry"
+                  placeholderTextColor={colors.textSecondary}
+                  value={formData.course}
+                  onChangeText={(text) => setFormData((prev) => ({ ...prev, course: text }))}
+                />
+              </View>
+
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 8 }}>Level *</Text>
+                <TextInput
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 8,
+                    padding: 12,
+                    fontSize: 16,
+                    color: colors.text,
+                    backgroundColor: colors.background,
+                  }}
+                  placeholder="e.g., Beginner, Intermediate, Advanced"
+                  placeholderTextColor={colors.textSecondary}
+                  value={formData.level}
+                  onChangeText={(text) => setFormData((prev) => ({ ...prev, level: text }))}
+                />
+              </View>
+
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 8 }}>Topic *</Text>
+                <TextInput
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 8,
+                    padding: 12,
+                    fontSize: 16,
+                    color: colors.text,
+                    backgroundColor: colors.background,
+                  }}
+                  placeholder="e.g., Calculus, Quantum Physics, Organic Chemistry"
+                  placeholderTextColor={colors.textSecondary}
+                  value={formData.topic}
+                  onChangeText={(text) => setFormData((prev) => ({ ...prev, topic: text }))}
+                />
+              </View>
+
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 8 }}>Year *</Text>
+                <TextInput
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 8,
+                    padding: 12,
+                    fontSize: 16,
+                    color: colors.text,
+                    backgroundColor: colors.background,
+                  }}
+                  placeholder="e.g., 2024, 2023"
+                  placeholderTextColor={colors.textSecondary}
+                  value={formData.year}
+                  onChangeText={(text) => setFormData((prev) => ({ ...prev, year: text }))}
+                  keyboardType="numeric"
+                />
+              </View>
+
+              {formData.file && (
+                <View
+                  style={{
+                    backgroundColor: colors.background,
+                    padding: 12,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: colors.text, marginBottom: 4 }}>
+                    Selected File:
+                  </Text>
+                  <Text style={{ fontSize: 14, color: colors.textSecondary }}>
+                    {formData.file.name} ({formatFileSize(formData.file.size)})
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 12, marginTop: 24 }}>
+              <TouchableOpacity
+                onPress={() => setShowUploadForm(false)}
+                style={{
+                  flex: 1,
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ color: colors.textSecondary, fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleFormSubmit}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.primary,
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ color: colors.primaryForeground, fontWeight: "600" }}>Upload PDF</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Card>
+      </View>
+    </Modal>
+    </KeyboardAvoidingView>
+  )
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
@@ -461,7 +795,6 @@ export default function UploadPage() {
           style={{
             fontSize: 24,
             fontWeight: "bold",
-            //@ts-ignore
             color: colors.text,
           }}
         >
@@ -536,7 +869,6 @@ export default function UploadPage() {
                   style={{
                     fontSize: 20,
                     fontWeight: "600",
-                    //@ts-ignore
                     color: colors.text,
                     marginBottom: 8,
                     textAlign: "center",
@@ -553,7 +885,7 @@ export default function UploadPage() {
                     marginBottom: 16,
                   }}
                 >
-                  Choose from your device
+                  Choose from your device and fill in details
                 </Text>
 
                 <TouchableOpacity
@@ -568,7 +900,6 @@ export default function UploadPage() {
                 >
                   <Text
                     style={{
-                        //@ts-ignore
                       color: colors.primaryForeground,
                       fontWeight: "600",
                     }}
@@ -604,7 +935,6 @@ export default function UploadPage() {
             style={{
               fontSize: 18,
               fontWeight: "600",
-              //@ts-ignore
               color: colors.text,
               marginBottom: 12,
             }}
@@ -633,7 +963,6 @@ export default function UploadPage() {
             style={{
               fontSize: 18,
               fontWeight: "600",
-              //@ts-ignore
               color: colors.text,
               marginBottom: 12,
             }}
@@ -658,7 +987,6 @@ export default function UploadPage() {
                 style={{
                   fontSize: 18,
                   fontWeight: "600",
-                  //@ts-ignore
                   color: colors.text,
                 }}
               >
@@ -716,7 +1044,6 @@ export default function UploadPage() {
                         style={{
                           fontSize: 16,
                           fontWeight: "500",
-                          //@ts-ignore
                           color: colors.text,
                           marginBottom: 4,
                         }}
@@ -773,6 +1100,30 @@ export default function UploadPage() {
                           </Text>
                         </View>
                       )}
+
+                      {file.status === "completed" && (
+                        <TouchableOpacity
+                          onPress={() => handleDownloadFile(file.id)}
+                          style={{
+                            backgroundColor: colors.primary + "20",
+                            paddingHorizontal: 12,
+                            paddingVertical: 6,
+                            borderRadius: 6,
+                            marginTop: 8,
+                            alignSelf: "flex-start",
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              color: colors.primary,
+                              fontWeight: "600",
+                            }}
+                          >
+                            Download
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </View>
 
@@ -804,14 +1155,13 @@ export default function UploadPage() {
               >
                 <Text
                   style={{
-                    //@ts-ignore
                     color: colors.primaryForeground,
                     fontWeight: "600",
                     fontSize: 16,
                     textAlign: "center",
                   }}
                 >
-                  Upload All Files (${getTotalPrice().toFixed(2)})
+                  View All Files (${getTotalPrice().toFixed(2)})
                 </Text>
               </Button>
             )}
@@ -820,6 +1170,7 @@ export default function UploadPage() {
       </ScrollView>
 
       <PaymentModal />
+      <PDFDetailsForm />
     </SafeAreaView>
   )
 }

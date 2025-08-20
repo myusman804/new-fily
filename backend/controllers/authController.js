@@ -2,6 +2,7 @@ const bcrypt = require("bcryptjs")
 const jwt = require("jsonwebtoken")
 const nodemailer = require("nodemailer")
 const User = require("../models/User")
+const PDF = require("../models/PDF")
 const { createVerificationEmailHTML } = require("../templete/emailTemplete")
 
 // Generate OTP
@@ -173,6 +174,9 @@ const login = async (req, res) => {
         name: user.name,
         email: user.email,
         coins: user.coins,
+        hasPaidForUpload: user.hasPaidForUpload,
+        totalPDFsUploaded: user.totalPDFsUploaded,
+        totalStorageUsed: user.totalStorageUsed,
       },
     })
   } catch (error) {
@@ -194,6 +198,22 @@ const dashboard = async (req, res) => {
       return res.status(404).json({ message: "User not found" })
     }
 
+    const pdfStats = await PDF.aggregate([
+      { $match: { userId: user._id } },
+      {
+        $group: {
+          _id: null,
+          totalPDFs: { $sum: 1 },
+          totalSize: { $sum: "$fileSize" },
+          completedUploads: {
+            $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] },
+          },
+        },
+      },
+    ])
+
+    const stats = pdfStats[0] || { totalPDFs: 0, totalSize: 0, completedUploads: 0 }
+
     res.status(200).json({
       message: "Dashboard data retrieved successfully",
       user: {
@@ -202,11 +222,38 @@ const dashboard = async (req, res) => {
         email: user.email,
         coins: user.coins,
         isVerified: user.isVerified,
+        hasPaidForUpload: user.hasPaidForUpload,
+        totalPDFsUploaded: stats.totalPDFs,
+        totalStorageUsed: stats.totalSize,
+        completedUploads: stats.completedUploads,
       },
     })
   } catch (error) {
     console.error("Dashboard error:", error)
     res.status(500).json({ message: "Server error retrieving dashboard data" })
+  }
+}
+
+const updateUploadPaymentStatus = async (req, res) => {
+  try {
+    const userId = req.userId
+    const { hasPaidForUpload } = req.body
+
+    const user = await User.findById(userId)
+    if (!user) {
+      return res.status(404).json({ message: "User not found" })
+    }
+
+    user.hasPaidForUpload = hasPaidForUpload
+    await user.save()
+
+    res.status(200).json({
+      message: "Payment status updated successfully",
+      hasPaidForUpload: user.hasPaidForUpload,
+    })
+  } catch (error) {
+    console.error("Update payment status error:", error)
+    res.status(500).json({ message: "Server error updating payment status" })
   }
 }
 
@@ -217,4 +264,5 @@ module.exports = {
   login,
   logout,
   dashboard,
+  updateUploadPaymentStatus,
 }
