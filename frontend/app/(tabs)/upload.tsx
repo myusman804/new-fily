@@ -239,6 +239,7 @@ export default function UploadPage() {
     </Modal>
   )
 
+
   const handlePayment = async () => {
     setIsProcessingPayment(true)
 
@@ -468,7 +469,7 @@ export default function UploadPage() {
       console.log("[v0] Auth token: Present")
 
       const formData = new FormData()
-      formData.append("pdf", {
+      formData.append("file", {
         uri: file.uri,
         type: "application/pdf",
         name: file.name,

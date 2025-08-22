@@ -42,7 +42,8 @@ if (!fs.existsSync(uploadsDir)) {
 // Routes
 const authRoutes = require("./routes/authRoute")
 const pdfRoutes = require("./routes/pdfRoute")
-
+const paymentRoutes = require("./routes/paymentRoute");
+app.use("/api/payment", paymentRoutes);
 app.use("/api/auth", authRoutes)
 app.use("/api/pdf", pdfRoutes)
 
