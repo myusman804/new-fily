@@ -1,29 +1,21 @@
 const mongoose = require("mongoose")
 
+const MONGO_URI =
+  process.env.MONGODB_URI ||
+  "mongodb+srv://mkyakoob804:8m788Gcucb0Uu6kB@cluster0.v0wtg7c.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+
 const connectDB = async () => {
   try {
-    const mongoURI = process.env.MONGODB_URI || "mongodb://localhost:27017/pdf-upload-app"
-
-    const conn = await mongoose.connect(mongoURI)
-
-    console.log(`MongoDB Connected: ${conn.connection.host}`)
-
-    mongoose.connection.on("error", (err) => {
-      console.error("MongoDB connection error:", err)
+    // Connect to MongoDB
+    await mongoose.connect(MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
     })
-
-    mongoose.connection.on("disconnected", () => {
-      console.log("MongoDB disconnected")
-    })
-
-    process.on("SIGINT", async () => {
-      await mongoose.connection.close()
-      console.log("MongoDB connection closed through app termination")
-      process.exit(0)
-    })
-  } catch (error) {
-    console.error("Database connection error:", error)
-    process.exit(1)
+    console.log("MongoDB Connected Successfully")
+    console.log("Database URI:", MONGO_URI.replace(/\/\/.*@/, "//***:***@")) // Hide credentials in logs
+  } catch (err) {
+    console.error("MongoDB Connection Failed:", err.message)
+    process.exit(1) // Exit the process with failure
   }
 }
 

@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, type ViewStyle, type TextStyle } from "react-native"
-import { useTheme } from "@/components/theme-context"
+import { useTheme } from "../theme-context"
 import type { ThemeContextType } from "@/components/theme-context"
 
 interface ButtonProps {

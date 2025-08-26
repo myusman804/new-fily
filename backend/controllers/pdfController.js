@@ -46,18 +46,25 @@ const uploadPDF = async (req, res) => {
   try {
     console.log("[v0] PDF upload request received")
     console.log("[v0] User ID:", req.userId)
+    console.log("[v0] Request body:", req.body)
     console.log("[v0] File info:", req.file ? { name: req.file.originalname, size: req.file.size } : "No file")
-    console.log("[v0] PDF details:", {
-      title: req.body.title,
-      course: req.body.course,
-      level: req.body.level,
-      topic: req.body.topic,
-      year: req.body.year,
-    })
 
     const userId = req.userId
     const file = req.file
     const { title, course, level, topic, year } = req.body
+
+    const user = await User.findById(userId)
+    if (!user) {
+      return res.status(404).json({ message: "User not found" })
+    }
+
+    if (!user.isVerified) {
+      return res.status(403).json({ message: "Please verify your email first" })
+    }
+
+    if (!user.hasUploadAccess) {
+      return res.status(403).json({ message: "Upload access required. Please complete payment." })
+    }
 
     if (!file) {
       console.log("[v0] No file uploaded - returning 400")
@@ -79,7 +86,7 @@ const uploadPDF = async (req, res) => {
     const fileData = fs.readFileSync(file.path)
     const base64Data = fileData.toString("base64")
 
-    console.log("[v0] Creating PDF record in database with file data and details")
+    console.log("[v0] Creating PDF record in database")
     const pdfRecord = new PDF({
       userId: userId,
       title: title.trim(),
@@ -99,6 +106,10 @@ const uploadPDF = async (req, res) => {
     await pdfRecord.save()
     console.log("[v0] PDF record created with ID:", pdfRecord._id)
 
+    user.uploadCount = (user.uploadCount || 0) + 1
+    user.coins = (user.coins || 0) + Math.floor(price * 10) // Award coins based on upload
+    await user.save()
+
     // Clean up temporary file
     fs.unlinkSync(file.path)
     console.log("[v0] Temporary file cleaned up")
@@ -116,6 +127,10 @@ const uploadPDF = async (req, res) => {
         fileSize: pdfRecord.fileSize,
         price: pdfRecord.price,
         uploadDate: pdfRecord.uploadDate,
+      },
+      user: {
+        coins: user.coins,
+        uploadCount: user.uploadCount,
       },
     })
   } catch (error) {

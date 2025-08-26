@@ -1,25 +1,31 @@
-
 "use client"
 
 import { useEffect } from "react"
-import { useRouter } from "expo-router"
-import { getAuthToken } from "../lib/auth-storage"
+import { router } from "expo-router"
+import { View, ActivityIndicator } from "react-native"
+import { storage } from "@/utils/storage"
 
 export default function IndexPage() {
-  const router = useRouter()
-
   useEffect(() => {
-    const checkToken = async () => {
-      const token = await getAuthToken()
-      if (token) {
-        router.replace("/(tabs)/overview") // or your home page
-      } else {
+    const checkAuth = async () => {
+      try {
+        const token = await storage.getItem("authToken")
+        if (token) {
+          router.replace("/(tabs)/overview")
+        } else {
+          router.replace("/login")
+        }
+      } catch (error) {
         router.replace("/login")
       }
     }
 
-    checkToken()
+    checkAuth()
   }, [])
 
-  return null
+  return (
+    <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+      <ActivityIndicator size="large" />
+    </View>
+  )
 }

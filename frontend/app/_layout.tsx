@@ -3,7 +3,6 @@
 import { Stack, useRouter, SplashScreen } from "expo-router"
 import Toast from "react-native-toast-message"
 import { SafeAreaProvider } from "react-native-safe-area-context"
-import { StatusBar } from "expo-status-bar"
 import { ThemeProvider, useTheme } from "@/components/theme-context"
 import { useEffect, useState } from "react"
 import { getAuthToken } from "@/lib/auth-storage"

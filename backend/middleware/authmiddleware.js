@@ -1,29 +1,32 @@
-const jwt = require("jsonwebtoken") // Import jsonwebtoken
+const jwt = require("jsonwebtoken")
+const User = require("../models/User")
 
-module.exports = (req, res, next) => {
-  // Get token from header
-  const token = req.header("Authorization")
-
-  // Check if not token
-  if (!token) {
-    return res.status(401).json({ message: "No token, authorization denied" })
-  }
-
-  // Extract the token part (remove "Bearer ")
-  const tokenParts = token.split(" ")
-  if (tokenParts.length !== 2 || tokenParts[0] !== "Bearer") {
-    return res.status(401).json({ message: "Token format is 'Bearer <token>'" })
-  }
-  const actualToken = tokenParts[1]
-
+const authMiddleware = async (req, res, next) => {
   try {
-    // Verify token
-    const decoded = jwt.verify(actualToken, process.env.JWT_SECRET) // Use JWT_SECRET from .env
+    const token = req.header("Authorization")?.replace("Bearer ", "")
+
+    if (!token) {
+      return res.status(401).json({ message: "Access denied. No token provided." })
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET)
+    const user = await User.findById(decoded.userId)
+
+    if (!user) {
+      return res.status(401).json({ message: "Invalid token. User not found." })
+    }
+
+    if (!user.isVerified) {
+      return res.status(401).json({ message: "Please verify your email first." })
+    }
 
     req.userId = decoded.userId
-    req.userEmail = decoded.email
+    req.user = user
     next()
-  } catch (err) {
-    res.status(401).json({ message: "Token is not valid" })
+  } catch (error) {
+    console.error("Auth middleware error:", error)
+    res.status(401).json({ message: "Invalid token." })
   }
 }
+
+module.exports = authMiddleware

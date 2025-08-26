@@ -1,16 +1,8 @@
-const bcrypt = require("bcryptjs")
+const User = require("../models/User")
+const bcrypt = require("bcrypt")
 const jwt = require("jsonwebtoken")
 const nodemailer = require("nodemailer")
-const User = require("../models/User")
-const PDF = require("../models/PDF")
-const { createVerificationEmailHTML } = require("../templete/emailTemplete")
 
-// Generate OTP
-const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString()
-}
-
-// Email transporter setup
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -19,10 +11,13 @@ const transporter = nodemailer.createTransport({
   },
 })
 
-// Register user
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
 const register = async (req, res) => {
   try {
-    const { name, email, password } = req.body
+    const { email, password, name } = req.body
 
     // Check if user already exists
     const existingUser = await User.findOne({ email })
@@ -31,36 +26,41 @@ const register = async (req, res) => {
     }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(password, 12)
+    const hashedPassword = await bcrypt.hash(password, 10)
 
     // Generate OTP
     const otp = generateOTP()
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
 
+    // Create user
     const user = new User({
       name,
       email,
       password: hashedPassword,
       otp,
-      otpExpiry,
-      coins: 5, // New users get 5 coins
+      otpExpires,
+      isVerified: false,
     })
 
     await user.save()
 
-    // Send verification email
+    // Send OTP email
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: email,
-      subject: "Email Verification - Your OTP Code",
-      html: createVerificationEmailHTML(name, otp),
+      subject: "Email Verification OTP",
+      html: `
+        <h2>Email Verification</h2>
+        <p>Your OTP for email verification is: <strong>${otp}</strong></p>
+        <p>This OTP will expire in 10 minutes.</p>
+      `,
     }
 
     await transporter.sendMail(mailOptions)
 
     res.status(201).json({
-      message: "User registered successfully. Please check your email for OTP verification.",
-      email: email,
+      message: "User registered successfully. Please verify your email with the OTP sent.",
+      userId: user._id,
     })
   } catch (error) {
     console.error("Registration error:", error)
@@ -68,49 +68,58 @@ const register = async (req, res) => {
   }
 }
 
-// Verify OTP
 const verifyOTP = async (req, res) => {
   try {
     const { email, otp } = req.body
 
     const user = await User.findOne({ email })
     if (!user) {
-      return res.status(400).json({ message: "User not found" })
+      return res.status(404).json({ message: "User not found" })
     }
 
     if (user.isVerified) {
       return res.status(400).json({ message: "User already verified" })
     }
 
-    if (user.otp !== otp) {
-      return res.status(400).json({ message: "Invalid OTP" })
+    if (user.otp !== otp || user.otpExpires < new Date()) {
+      return res.status(400).json({ message: "Invalid or expired OTP" })
     }
 
-    if (user.otpExpiry < new Date()) {
-      return res.status(400).json({ message: "OTP expired" })
-    }
-
-    // Mark user as verified and clear OTP
+    // Verify user
     user.isVerified = true
     user.otp = undefined
-    user.otpExpiry = undefined
+    user.otpExpires = undefined
     await user.save()
 
-    res.status(200).json({ message: "Email verified successfully" })
+    // Generate JWT token
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    })
+
+    res.json({
+      message: "Email verified successfully",
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        coins: user.coins,
+        hasUploadAccess: user.hasUploadAccess,
+      },
+    })
   } catch (error) {
     console.error("OTP verification error:", error)
     res.status(500).json({ message: "Server error during verification" })
   }
 }
 
-// Resend OTP
 const resendOTP = async (req, res) => {
   try {
     const { email } = req.body
 
     const user = await User.findOne({ email })
     if (!user) {
-      return res.status(400).json({ message: "User not found" })
+      return res.status(404).json({ message: "User not found" })
     }
 
     if (user.isVerified) {
@@ -119,30 +128,33 @@ const resendOTP = async (req, res) => {
 
     // Generate new OTP
     const otp = generateOTP()
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000)
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000)
 
     user.otp = otp
-    user.otpExpiry = otpExpiry
+    user.otpExpires = otpExpires
     await user.save()
 
-    // Send verification email
+    // Send OTP email
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: email,
-      subject: "Email Verification - Your New OTP Code",
-      html: createVerificationEmailHTML(user.name, otp),
+      subject: "Email Verification OTP - Resent",
+      html: `
+        <h2>Email Verification</h2>
+        <p>Your new OTP for email verification is: <strong>${otp}</strong></p>
+        <p>This OTP will expire in 10 minutes.</p>
+      `,
     }
 
     await transporter.sendMail(mailOptions)
 
-    res.status(200).json({ message: "New OTP sent successfully" })
+    res.json({ message: "OTP resent successfully" })
   } catch (error) {
     console.error("Resend OTP error:", error)
     res.status(500).json({ message: "Server error during OTP resend" })
   }
 }
 
-// Login user
 const login = async (req, res) => {
   try {
     const { email, password } = req.body
@@ -150,23 +162,26 @@ const login = async (req, res) => {
     // Find user
     const user = await User.findOne({ email })
     if (!user) {
-      return res.status(400).json({ message: "Invalid credentials" })
+      return res.status(401).json({ message: "Invalid credentials" })
     }
 
+    // Check if user is verified
     if (!user.isVerified) {
-      return res.status(400).json({ message: "Please verify your email first" })
+      return res.status(401).json({ message: "Please verify your email first" })
     }
 
     // Check password
     const isPasswordValid = await bcrypt.compare(password, user.password)
     if (!isPasswordValid) {
-      return res.status(400).json({ message: "Invalid credentials" })
+      return res.status(401).json({ message: "Invalid credentials" })
     }
 
     // Generate JWT token
-    const token = jwt.sign({ userId: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: "24h" })
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    })
 
-    res.status(200).json({
+    res.json({
       message: "Login successful",
       token,
       user: {
@@ -174,9 +189,7 @@ const login = async (req, res) => {
         name: user.name,
         email: user.email,
         coins: user.coins,
-        hasPaidForUpload: user.hasPaidForUpload,
-        totalPDFsUploaded: user.totalPDFsUploaded,
-        totalStorageUsed: user.totalStorageUsed,
+        hasUploadAccess: user.hasUploadAccess,
       },
     })
   } catch (error) {
@@ -185,74 +198,86 @@ const login = async (req, res) => {
   }
 }
 
-// Logout user
 const logout = async (req, res) => {
-  res.status(200).json({ message: "Logout successful" })
+  res.json({ message: "Logout successful" })
 }
 
-// Dashboard
 const dashboard = async (req, res) => {
   try {
-    const user = await User.findById(req.userId).select("-password -otp -otpExpiry")
+    const user = await User.findById(req.userId).select("-password -otp")
     if (!user) {
       return res.status(404).json({ message: "User not found" })
     }
 
-    const pdfStats = await PDF.aggregate([
-      { $match: { userId: user._id } },
-      {
-        $group: {
-          _id: null,
-          totalPDFs: { $sum: 1 },
-          totalSize: { $sum: "$fileSize" },
-          completedUploads: {
-            $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] },
-          },
-        },
-      },
-    ])
-
-    const stats = pdfStats[0] || { totalPDFs: 0, totalSize: 0, completedUploads: 0 }
-
-    res.status(200).json({
-      message: "Dashboard data retrieved successfully",
+    res.json({
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         coins: user.coins,
-        isVerified: user.isVerified,
-        hasPaidForUpload: user.hasPaidForUpload,
-        totalPDFsUploaded: stats.totalPDFs,
-        totalStorageUsed: stats.totalSize,
-        completedUploads: stats.completedUploads,
+        hasUploadAccess: user.hasUploadAccess,
+        uploadCount: user.uploadCount,
+        maxUploads: user.maxUploads,
       },
     })
   } catch (error) {
     console.error("Dashboard error:", error)
-    res.status(500).json({ message: "Server error retrieving dashboard data" })
+    res.status(500).json({ message: "Server error fetching dashboard" })
   }
 }
 
-const updateUploadPaymentStatus = async (req, res) => {
+const changePassword = async (req, res) => {
   try {
-    const userId = req.userId
-    const { hasPaidForUpload } = req.body
+    const { oldPassword, newPassword } = req.body
+    const userId = req.userId // set by auth middleware (JWT verify)
 
     const user = await User.findById(userId)
     if (!user) {
       return res.status(404).json({ message: "User not found" })
     }
 
-    user.hasPaidForUpload = hasPaidForUpload
+    // Check old password
+    const isMatch = await bcrypt.compare(oldPassword, user.password)
+    if (!isMatch) {
+      return res.status(400).json({ message: "Old password is incorrect" })
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10)
+    user.password = hashedPassword
     await user.save()
 
-    res.status(200).json({
-      message: "Payment status updated successfully",
-      hasPaidForUpload: user.hasPaidForUpload,
+    res.json({ message: "Password changed successfully" })
+  } catch (error) {
+    console.error("Change password error:", error)
+    res.status(500).json({ message: "Server error while changing password" })
+  }
+}
+
+
+const updateUploadPaymentStatus = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId)
+    if (!user) {
+      return res.status(404).json({ message: "User not found" })
+    }
+
+    // Grant upload access
+    user.hasUploadAccess = true
+    await user.save()
+
+    res.json({
+      message: "Upload access granted successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        coins: user.coins,
+        hasUploadAccess: user.hasUploadAccess,
+      },
     })
   } catch (error) {
-    console.error("Update payment status error:", error)
+    console.error("Payment status update error:", error)
     res.status(500).json({ message: "Server error updating payment status" })
   }
 }
@@ -265,4 +290,5 @@ module.exports = {
   logout,
   dashboard,
   updateUploadPaymentStatus,
+  changePassword
 }

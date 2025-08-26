@@ -1,8 +1,6 @@
-"use client"
-
 import { View, TextInput, StyleSheet, type TextInputProps, type TextStyle, type ViewStyle } from "react-native"
 import { Label } from "./label"
-import { useTheme } from "@/components/theme-context" // Import useTheme
+import { useTheme } from "../theme-context" // Import useTheme
 import type { ThemeContextType } from "@/components/theme-context" // Declare ThemeContextType
 
 interface InputProps extends TextInputProps {

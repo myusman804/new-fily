@@ -1,445 +1,547 @@
 "use client"
 
-import { useEffect, useState, useRef, useCallback } from "react"
-import { View, Text, StyleSheet, ActivityIndicator, Animated, TouchableOpacity } from "react-native"
-import { useRouter } from "expo-router"
-import { testConnection } from "@/lib/api"
+import { useEffect, useState } from "react"
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+  ActivityIndicator,
+  Linking,
+  RefreshControl,
+} from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import { CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { useToast } from "@/components/ui/use-toast"
 import { useTheme } from "@/components/theme-context"
-import type { ThemeContextType } from "@/components/theme-context"
-import { getAuthToken, getUserData } from "@/lib/auth-storage"
+import { getPdfApiUrl, getAuthToken } from "../../lib/api"
 
-export default function OverviewTab() {
-  const [data, setData] = useState<any>(null)
+interface PDF {
+  _id: string
+  title: string
+  course: string
+  level: string
+  topic: string
+  year: string
+  fileName: string
+  originalName: string
+  fileSize: number
+  uploadedAt: string
+  status: string
+}
+
+export default function OverviewPage() {
+  const [pdfs, setPdfs] = useState<PDF[]>([])
+  const [filteredPdfs, setFilteredPdfs] = useState<PDF[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [testingConnection, setTestingConnection] = useState(false)
-  const router = useRouter()
-  const { toast } = useToast()
+  const [refreshing, setRefreshing] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedFilter, setSelectedFilter] = useState<string>("all")
   const { colors } = useTheme()
 
-  const isLoadingRef = useRef(false)
-
-  // Animation values
-  const headerAnim = useRef(new Animated.Value(0)).current
-  const cardAnim1 = useRef(new Animated.Value(0)).current
-  const cardAnim2 = useRef(new Animated.Value(0)).current
-  const cardAnim3 = useRef(new Animated.Value(0)).current
-  const cardAnim4 = useRef(new Animated.Value(0)).current
-
-  const getUserDataFromToken = async () => {
+  const fetchPdfs = async () => {
     try {
       const token = await getAuthToken()
-      if (token) {
-        const payload = JSON.parse(atob(token.split(".")[1]))
-        console.log("[v0] JWT Token payload:", JSON.stringify(payload, null, 2))
-
-        const userData = {
-          id: payload.userId || payload.user?.id || payload.id,
-          email: payload.email || payload.user?.email || "user@example.com",
-          name: payload.name || payload.user?.name || payload.username || "User",
-        }
-
-        console.log("[v0] Extracted user data:", userData)
-        return userData
-      }
-    } catch (error) {
-      console.log("[v0] Error decoding token:", error)
-    }
-    return null
-  }
-
-  const fetchDashboardData = useCallback(async () => {
-    if (isLoadingRef.current) {
-      console.log("[v0] Request already in progress, skipping...")
-      return
-    }
-
-    isLoadingRef.current = true
-    setLoading(true)
-    setError(null)
-
-    try {
-      console.log("[v0] Starting dashboard data fetch...")
-
-      const storedUserData = await getUserData()
-
-      if (storedUserData) {
-        console.log("[v0] Using stored user data from login:", storedUserData)
-        const dashboardData = {
-          user: {
-            name: storedUserData.name,
-            email: storedUserData.email,
-            coins: storedUserData.coins,
-          },
-          earnings: {
-            total: null,
-            thisMonth: null,
-          },
-          campaigns: {
-            active: null,
-            total: null,
-          },
-        }
-
-        setData(dashboardData)
-        toast({
-          title: "Welcome back!",
-          description: `Hello ${storedUserData.name}! Your dashboard is ready.`,
-          variant: "success",
-        })
+      console.log("[v0] Token retrieved:", token)
+      if (!token) {
+        Alert.alert("Authentication Error", "Please log in to view your PDFs")
         return
       }
 
-      console.log("[v0] No stored user data, trying JWT token...")
-      const userData = await getUserDataFromToken()
-
-      if (userData) {
-        const fallbackData = {
-          user: {
-            name: userData.name,
-            email: userData.email,
-            coins: null,
-          },
-          earnings: { total: null, thisMonth: null },
-          campaigns: { active: null, total: null },
-        }
-
-        setData(fallbackData)
-        toast({
-          title: "Dashboard Ready",
-          description: "Using account information from your session.",
-          variant: "info",
-        })
-      } else {
-        throw new Error("No user data available")
-      }
-    } catch (error: any) {
-      console.log("[v0] Dashboard fetch error:", error.message)
-      setError("Unable to load user data. Please try logging in again.")
-      toast({
-        title: "Data Error",
-        description: "Please log in again to refresh your data.",
-        //@ts-ignore
-        variant: "error",
+      console.log("[v0] Fetching PDFs from:", `${getPdfApiUrl()}/my-pdfs`)
+      const response = await fetch(`${getPdfApiUrl()}/my-pdfs`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
       })
-      router.replace("/login")
-    } finally {
-      setLoading(false)
-      isLoadingRef.current = false
 
-      setTimeout(() => {
-        if (!error) {
-          Animated.stagger(100, [
-            Animated.timing(headerAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
-            Animated.timing(cardAnim1, { toValue: 1, duration: 300, useNativeDriver: true }),
-            Animated.timing(cardAnim2, { toValue: 1, duration: 300, useNativeDriver: true }),
-            Animated.timing(cardAnim3, { toValue: 1, duration: 300, useNativeDriver: true }),
-            Animated.timing(cardAnim4, { toValue: 1, duration: 300, useNativeDriver: true }),
-          ]).start()
-        }
-      }, 100)
-    }
-  }, [toast, router])
-
-  const handleTestConnection = async () => {
-    setTestingConnection(true)
-    try {
-      const result = await testConnection()
-      if (result.success) {
-        toast({
-          title: "Connection Success",
-          description: result.message,
-          variant: "success",
-        })
+      console.log("[v0] Response status:", response.status)
+      if (response.ok) {
+        const data = await response.json()
+        console.log("[v0] PDFs fetched:", data)
+        setPdfs(data.pdfs || [])
+        setFilteredPdfs(data.pdfs || [])
       } else {
-        toast({
-          title: "Connection Failed",
-          description: `${result.message}\n\nSuggestions:\n${result.suggestions?.join("\n")}`,
-          //@ts-ignore
-          variant: "error",
-        })
+        const errorText = await response.text()
+        console.log("[v0] Error response:", errorText)
+        throw new Error("Failed to fetch PDFs")
       }
     } catch (error) {
-      toast({
-        title: "Test Failed",
-        description: "Unable to test connection",
-        //@ts-ignore
-        variant: "error",
-      })
+      console.error("Error fetching PDFs:", error)
+      Alert.alert("Error", "Failed to load your PDFs")
     } finally {
-      setTestingConnection(false)
+      setLoading(false)
+      setRefreshing(false)
     }
+  }
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query)
+    filterPdfs(query, selectedFilter)
+  }
+
+  const handleFilterChange = (filter: string) => {
+    setSelectedFilter(filter)
+    filterPdfs(searchQuery, filter)
+  }
+
+  const filterPdfs = (query: string, filter: string) => {
+    let filtered = pdfs
+
+    if (query.trim()) {
+      filtered = filtered.filter(
+        (pdf) =>
+          pdf.title.toLowerCase().includes(query.toLowerCase()) ||
+          pdf.course.toLowerCase().includes(query.toLowerCase()) ||
+          pdf.topic.toLowerCase().includes(query.toLowerCase()),
+      )
+    }
+
+    if (filter !== "all") {
+      filtered = filtered.filter((pdf) => pdf.level.toLowerCase() === filter.toLowerCase())
+    }
+
+    setFilteredPdfs(filtered)
+  }
+
+  const handleDownload = async (pdfId: string, fileName: string) => {
+    try {
+      const token = await getAuthToken()
+      const downloadUrl = `${getPdfApiUrl()}/download/${pdfId}?token=${token}`
+
+      Alert.alert("Download PDF", `Download ${fileName}?`, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Download",
+          onPress: () => {
+            Linking.openURL(downloadUrl).catch(() => {
+              Alert.alert("Error", "Unable to open download link")
+            })
+          },
+        },
+      ])
+    } catch (error) {
+      Alert.alert("Download Failed", "Unable to download the PDF")
+    }
+  }
+
+  const handleDelete = async (pdfId: string, title: string) => {
+    Alert.alert("Delete PDF", `Are you sure you want to delete "${title}"?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            const token = await getAuthToken()
+            const response = await fetch(`${getPdfApiUrl()}/delete/${pdfId}`, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            })
+
+            if (response.ok) {
+              setPdfs((prev) => prev.filter((pdf) => pdf._id !== pdfId))
+              setFilteredPdfs((prev) => prev.filter((pdf) => pdf._id !== pdfId))
+              Alert.alert("Success", `${title} has been deleted`)
+            } else {
+              const errorData = await response.json()
+              throw new Error(errorData.message || "Delete failed")
+            }
+          } catch (error) {
+            console.error("Delete error:", error)
+            Alert.alert("Delete Failed", "Unable to delete the PDF")
+          }
+        },
+      },
+    ])
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    })
+  }
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return "0 Bytes"
+    const k = 1024
+    const sizes = ["Bytes", "KB", "MB", "GB"]
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
+  }
+
+  const getFilterOptions = () => {
+    const levels = [...new Set(pdfs.map((pdf) => pdf.level))]
+    return [
+      { label: "All Levels", value: "all" },
+      ...levels.map((level) => ({ label: level, value: level.toLowerCase() })),
+    ]
+  }
+
+  const onRefresh = () => {
+    setRefreshing(true)
+    fetchPdfs()
   }
 
   useEffect(() => {
-    fetchDashboardData()
-
-    return () => {
-      isLoadingRef.current = false
-    }
-  }, []) // Removed fetchDashboardData from dependencies to prevent infinite loop
-
-  const themedStyles = getThemedStyles(colors)
+    fetchPdfs()
+  }, [])
 
   if (loading) {
     return (
-      <View style={themedStyles.loadingContainer}>
+      <SafeAreaView
+        style={{
+          flex: 1,
+          backgroundColor: colors.background,
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={themedStyles.loadingText}>Loading dashboard...</Text>
-      </View>
-    )
-  }
-
-  if (error) {
-    return (
-      <View style={themedStyles.errorContainer}>
-        <Text style={themedStyles.errorTitle}>Connection Error</Text>
-        <Text style={themedStyles.errorText}>{error}</Text>
-        <Text style={themedStyles.errorHint}>
-          Make sure your backend server is running on:
-          {"\n"}http://192.168.180.122:3000
+        <Text
+          style={{
+            marginTop: 16,
+            fontSize: 18,
+            color: colors.textPrimary,
+            textAlign: "center",
+          }}
+        >
+          Loading your PDF library...
         </Text>
-        <View style={themedStyles.buttonContainer}>
-          <TouchableOpacity
-            style={[themedStyles.retryButton, themedStyles.testButton]}
-            onPress={handleTestConnection}
-            disabled={testingConnection}
-          >
-            <Text style={themedStyles.retryButtonText}>{testingConnection ? "Testing..." : "Test Connection"}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={themedStyles.retryButton} onPress={fetchDashboardData}>
-            <Text style={themedStyles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      </SafeAreaView>
     )
   }
-
-  const headerAnimatedStyle = {
-    opacity: headerAnim,
-    transform: [{ translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }],
-  }
-
-  const cardAnimatedStyle = (animValue: Animated.Value) => ({
-    opacity: animValue,
-    transform: [{ translateY: animValue.interpolate({ inputRange: [0, 1], outputRange: [50, 0] }) }],
-  })
 
   return (
-    <SafeAreaView style={themedStyles.safeArea}>
-      <Animated.View style={[themedStyles.header, headerAnimatedStyle]}>
-        <Text style={themedStyles.headerTitle}>AdsMoney Dashboard</Text>
-        <View style={themedStyles.headerCoinBalance}>
-          <Text style={themedStyles.coinIcon}>🪙</Text>
-          <Text style={themedStyles.headerCoinText}>{data?.user?.coins || "0"}</Text>
-        </View>
-      </Animated.View>
-      <View style={themedStyles.contentContainer}>
-        <Animated.View style={[themedStyles.card, themedStyles.welcomeCard, cardAnimatedStyle(cardAnim1)]}>
-          <CardHeader>
-            <CardTitle>Welcome, {data?.user?.name}!</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Text style={themedStyles.cardContentText}>Your journey to maximizing ad revenue starts here.</Text>
-            <Text style={themedStyles.cardDescriptionText}>
-              Explore your performance metrics and manage your campaigns.
-            </Text>
-          </CardContent>
-        </Animated.View>
-
-        <Animated.View style={[themedStyles.metricCard, themedStyles.coinCard, cardAnimatedStyle(cardAnim2)]}>
-          <CardHeader>
-            <CardTitle style={themedStyles.coinTitle}>💰 Coin Balance</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Text style={themedStyles.coinValue}>{data?.user?.coins}</Text>
-            <Text style={themedStyles.metricDescription}>Available coins</Text>
-          </CardContent>
-        </Animated.View>
-
-        <Animated.View style={[themedStyles.metricCard, cardAnimatedStyle(cardAnim3)]}>
-          <CardHeader>
-            <CardTitle style={themedStyles.metricTitle}>Total Earnings</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Text style={themedStyles.metricValue}>
-              {data?.earnings?.total ? `$${data.earnings.total.toFixed(2)}` : "No data"}
-            </Text>
-            <Text style={themedStyles.metricDescription}>All time</Text>
-          </CardContent>
-        </Animated.View>
-
-        <Animated.View style={[themedStyles.metricCard, cardAnimatedStyle(cardAnim4)]}>
-          <CardHeader>
-            <CardTitle style={themedStyles.metricTitle}>Active Campaigns</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Text style={themedStyles.metricValue}>
-              {data?.campaigns?.active !== null ? data.campaigns.active : "No data"}
-            </Text>
-            <Text style={themedStyles.metricDescription}>Currently running</Text>
-          </CardContent>
-        </Animated.View>
+    <SafeAreaView
+      style={{
+        flex: 1,
+        backgroundColor: colors.background,
+      }}
+    >
+      {/* Header */}
+      <View
+        style={{
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          padding: 16,
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 28,
+            fontWeight: "bold",
+            color: colors.textPrimary,
+            marginBottom: 8,
+          }}
+        >
+          📚 PDF Library
+        </Text>
+        <Text
+          style={{
+            color: colors.textSecondary,
+          }}
+        >
+          {filteredPdfs.length} of {pdfs.length} documents
+        </Text>
       </View>
+
+      <ScrollView style={{ flex: 1 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+        {/* Search and Filter Section */}
+        <View
+          style={{
+            backgroundColor: colors.cardBackground,
+            padding: 16,
+          }}
+        >
+          {/* Search Bar */}
+          <View
+            style={{
+              position: "relative",
+              marginBottom: 16,
+            }}
+          >
+            <TextInput
+              style={{
+                backgroundColor: colors.background,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 8,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                fontSize: 16,
+                color: colors.textPrimary,
+              }}
+              placeholder="Search PDFs by title, course, or topic..."
+              placeholderTextColor={colors.textSecondary}
+              value={searchQuery}
+              onChangeText={handleSearch}
+            />
+          </View>
+
+          {/* Filter Chips */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              {getFilterOptions().map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  onPress={() => handleFilterChange(option.value)}
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    backgroundColor: selectedFilter === option.value ? colors.primary : colors.background,
+                    borderColor: selectedFilter === option.value ? colors.primary : colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontWeight: "500",
+                      color: selectedFilter === option.value ? colors.white : colors.textPrimary,
+                    }}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+
+        {/* PDF List */}
+        <View style={{ padding: 16 }}>
+          {filteredPdfs.length === 0 ? (
+            <View
+              style={{
+                alignItems: "center",
+                justifyContent: "center",
+                paddingVertical: 80,
+              }}
+            >
+              <Text style={{ fontSize: 60, marginBottom: 16 }}>📄</Text>
+              <Text
+                style={{
+                  fontSize: 20,
+                  fontWeight: "600",
+                  color: colors.textPrimary,
+                  marginBottom: 8,
+                  textAlign: "center",
+                }}
+              >
+                {searchQuery || selectedFilter !== "all" ? "No PDFs found" : "No PDFs uploaded yet"}
+              </Text>
+              <Text
+                style={{
+                  color: colors.textSecondary,
+                  textAlign: "center",
+                }}
+              >
+                {searchQuery || selectedFilter !== "all"
+                  ? "Try adjusting your search or filter criteria"
+                  : "Upload your first PDF to get started"}
+              </Text>
+            </View>
+          ) : (
+            <View style={{ gap: 16 }}>
+              {filteredPdfs.map((pdf) => (
+                <View
+                  key={pdf._id}
+                  style={{
+                    backgroundColor: colors.cardBackground,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 12,
+                    padding: 16,
+                    shadowColor: colors.cardShadow,
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 4,
+                    elevation: 3,
+                  }}
+                >
+                  {/* Card Header */}
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      marginBottom: 12,
+                    }}
+                  >
+                    <View style={{ flex: 1, marginRight: 12 }}>
+                      <Text
+                        style={{
+                          fontSize: 18,
+                          fontWeight: "600",
+                          color: colors.textPrimary,
+                          marginBottom: 8,
+                        }}
+                      >
+                        {pdf.title}
+                      </Text>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          marginBottom: 4,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: colors.primary,
+                            marginRight: 4,
+                          }}
+                        >
+                          📖
+                        </Text>
+                        <Text
+                          style={{
+                            fontSize: 14,
+                            color: colors.textSecondary,
+                          }}
+                        >
+                          {pdf.course}
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                        }}
+                      >
+                        <Text style={{ color: "#8b5cf6", marginRight: 4 }}>🎓</Text>
+                        <Text
+                          style={{
+                            fontSize: 14,
+                            color: colors.textSecondary,
+                          }}
+                        >
+                          {pdf.level}
+                        </Text>
+                      </View>
+                    </View>
+                    <View
+                      style={{
+                        backgroundColor: `${colors.primary}20`,
+                        padding: 12,
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 24,
+                          color: colors.primary,
+                        }}
+                      >
+                        📄
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Card Content */}
+                  <View style={{ marginBottom: 16 }}>
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        color: colors.textSecondary,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <Text style={{ fontWeight: "500" }}>Topic:</Text> {pdf.topic}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        color: colors.textSecondary,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <Text style={{ fontWeight: "500" }}>Year:</Text> {pdf.year}
+                    </Text>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginBottom: 8,
+                      }}
+                    >
+                      <Text style={{ marginRight: 4 }}>📅</Text>
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          color: colors.textSecondary,
+                        }}
+                      >
+                        {formatDate(pdf.uploadedAt)}
+                      </Text>
+                    </View>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: colors.textSecondary,
+                      }}
+                    >
+                      {formatFileSize(pdf.fileSize)}
+                    </Text>
+                  </View>
+
+                  {/* Action Buttons */}
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => handleDownload(pdf._id, pdf.fileName)}
+                      style={{
+                        flex: 1,
+                        backgroundColor: `${colors.primary}20`,
+                        borderWidth: 1,
+                        borderColor: `${colors.primary}40`,
+                        borderRadius: 8,
+                        paddingVertical: 12,
+                        paddingHorizontal: 16,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Text>⬇️</Text>
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: "500",
+                          color: colors.primary,
+                        }}
+                      >
+                        Download
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDelete(pdf._id, pdf.title)}
+                      style={{
+                        backgroundColor: "#ef444420",
+                        borderWidth: 1,
+                        borderColor: "#ef444440",
+                        borderRadius: 8,
+                        paddingVertical: 12,
+                        paddingHorizontal: 16,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text>🗑️</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      </ScrollView>
     </SafeAreaView>
   )
 }
-
-const getThemedStyles = (colors: ThemeContextType["colors"]) =>
-  StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      backgroundColor: colors.background,
-      paddingTop: 16,
-    },
-    loadingContainer: {
-      flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-      backgroundColor: colors.background,
-    },
-    loadingText: {
-      marginTop: 10,
-      fontSize: 16,
-      color: colors.textSecondary,
-    },
-    errorContainer: {
-      flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-      backgroundColor: colors.background,
-      paddingHorizontal: 32,
-    },
-    errorTitle: {
-      fontSize: 24,
-      fontWeight: "bold",
-      color: colors.textPrimary,
-      marginBottom: 16,
-      textAlign: "center",
-    },
-    errorText: {
-      fontSize: 16,
-      color: colors.textSecondary,
-      textAlign: "center",
-      marginBottom: 16,
-    },
-    errorHint: {
-      fontSize: 14,
-      color: colors.textSecondary,
-      textAlign: "center",
-      marginBottom: 24,
-      fontFamily: "monospace",
-    },
-    retryButton: {
-      backgroundColor: colors.primary,
-      paddingHorizontal: 24,
-      paddingVertical: 12,
-      borderRadius: 8,
-    },
-    testButton: {
-      backgroundColor: colors.textSecondary,
-    },
-    retryButtonText: {
-      color: "white",
-      fontSize: 16,
-      fontWeight: "600",
-    },
-    header: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      backgroundColor: colors.cardBackground,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.headerBorder,
-      marginBottom: 16,
-    },
-    headerTitle: {
-      fontSize: 24,
-      fontWeight: "bold",
-      color: colors.textPrimary,
-    },
-    contentContainer: {
-      flex: 1,
-      paddingHorizontal: 16,
-      gap: 16,
-    },
-    card: {
-      width: "100%",
-    },
-    welcomeCard: {
-      marginBottom: 8,
-    },
-    cardContentText: {
-      fontSize: 16,
-      color: colors.textPrimary,
-      marginBottom: 8,
-    },
-    cardDescriptionText: {
-      fontSize: 14,
-      color: colors.textSecondary,
-    },
-    metricCard: {
-      width: "100%",
-      paddingVertical: 16,
-      paddingHorizontal: 20,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-    },
-    coinCard: {
-      backgroundColor: colors.primary + "10",
-      borderWidth: 1,
-      borderColor: colors.primary + "30",
-    },
-    metricTitle: {
-      fontSize: 18,
-      fontWeight: "600",
-      color: colors.textPrimary,
-    },
-    coinTitle: {
-      fontSize: 18,
-      fontWeight: "600",
-      color: colors.primary,
-    },
-    metricValue: {
-      fontSize: 28,
-      fontWeight: "bold",
-      color: colors.primary,
-    },
-    coinValue: {
-      fontSize: 32,
-      fontWeight: "bold",
-      color: colors.primary,
-    },
-    metricDescription: {
-      fontSize: 12,
-      color: colors.textSecondary,
-      marginTop: 4,
-    },
-    buttonContainer: {
-      flexDirection: "row",
-      gap: 12,
-    },
-    headerCoinBalance: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: colors.primary + "15",
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 20,
-      gap: 6,
-    },
-    headerCoinText: {
-      fontSize: 16,
-      fontWeight: "600",
-      color: colors.primary,
-    },
-    coinIcon: {
-      fontSize: 16,
-    },
-  })

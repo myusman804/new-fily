@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { Text, StyleSheet, type TextStyle } from "react-native"
-import { useTheme } from "@/components/theme-context"
+import { useTheme } from "../theme-context"
 import type { ThemeContextType } from "../theme-context"
 
 interface LabelProps {

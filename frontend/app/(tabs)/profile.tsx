@@ -1,6 +1,6 @@
 "use client"
 
-import { View, Text, StyleSheet, SafeAreaView, Switch, Animated, TouchableOpacity } from "react-native"
+import { View, Text, StyleSheet, SafeAreaView, Switch, Animated, TouchableOpacity, ScrollView } from "react-native"
 import { useRef, useEffect, useState } from "react"
 import { CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { useTheme, type ThemeContextType } from "@/components/theme-context"
@@ -108,6 +108,7 @@ export default function ProfileTab() {
           </Button>
         </View>
       </Animated.View>
+      <ScrollView>
       <View style={themedStyles.contentContainer}>
         <Animated.View style={[themedStyles.card, cardAnimatedStyle(cardAnim1)]}>
           <CardHeader>
@@ -175,12 +176,6 @@ export default function ProfileTab() {
                 >
                   Dark
                 </Text>
-                <Text
-                  style={[themedStyles.themeOption, theme === "system" && themedStyles.activeThemeOption]}
-                  onPress={() => setTheme("system")}
-                >
-                  System
-                </Text>
               </View>
             </View>
           </CardContent>
@@ -196,7 +191,7 @@ export default function ProfileTab() {
               <Text style={themedStyles.securityLabel}>Password</Text>
               <TouchableOpacity
                 style={themedStyles.changePasswordButton}
-                onPress={() => console.log("Change Password pressed")}
+                onPress={() => router.push("/change-password")}
               >
                 <Text style={themedStyles.changePasswordButtonText}>Change Password</Text>
               </TouchableOpacity>
@@ -214,6 +209,7 @@ export default function ProfileTab() {
           </CardContent>
         </Animated.View>
       </View>
+      </ScrollView>
     </SafeAreaView>
   )
 }

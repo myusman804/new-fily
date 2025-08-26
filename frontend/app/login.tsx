@@ -99,7 +99,7 @@ export default function LoginPage() {
         </CardContent>
         <CardFooter style={themedStyles.footer}>
           <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }}>
-            <Text style={themedStyles.footerText}>Don't have an account? </Text>
+            <Text style={themedStyles.footerText}>Dont have an account? </Text>
             <Link href="/register" asChild>
               <Text style={themedStyles.link}>Register</Text>
             </Link>

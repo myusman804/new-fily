@@ -10,7 +10,7 @@ import { Upload, FileText, X, CheckCircle, AlertCircle, Coins, DollarSign, Credi
 import { getUserData, saveUserData, getAuthToken } from "@/lib/auth-storage"
 import * as DocumentPicker from "expo-document-picker"
 import { Linking } from "react-native"
-import { getBaseApiUrl } from "@/lib/api"
+import { getPdfApiUrl, getBaseApiUrl } from "../../lib/api"
 
 interface UploadedFile {
   id: string
@@ -65,9 +65,9 @@ export default function UploadPage() {
       const token = await getAuthToken()
       if (token) {
         setAuthToken(token)
-        console.log("[v0] Auth token: Present")
+        console.log("[v0] Auth token loaded successfully")
       } else {
-        console.log("[v0] Auth token: Missing")
+        console.log("[v0] No auth token found")
       }
     }
 
@@ -119,7 +119,7 @@ export default function UploadPage() {
               style={{
                 fontSize: 24,
                 fontWeight: "bold",
-                color: colors.text,
+                color: colors.textPrimary,
                 textAlign: "center",
                 marginBottom: 8,
               }}
@@ -151,7 +151,7 @@ export default function UploadPage() {
               style={{
                 fontSize: 18,
                 fontWeight: "600",
-                color: colors.text,
+                color: colors.textPrimary,
                 marginBottom: 12,
               }}
             >
@@ -206,6 +206,7 @@ export default function UploadPage() {
             >
               <Text
                 style={{
+                  //@ts-ignore
                   color: colors.primaryForeground,
                   fontWeight: "600",
                   fontSize: 16,
@@ -239,16 +240,14 @@ export default function UploadPage() {
     </Modal>
   )
 
-
   const handlePayment = async () => {
     setIsProcessingPayment(true)
 
     try {
       console.log("[v0] Processing payment...")
 
-      const baseUrl = getBaseApiUrl() // Use the declared getBaseApiUrl variable
-      const response = await fetch(`${baseUrl}/api/auth/update-upload-payment`, {
-        method: "POST",
+      const response = await fetch(`${getBaseApiUrl()}/update-payment-status`, {
+        method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${authToken}`,
@@ -309,7 +308,7 @@ export default function UploadPage() {
         style={{
           fontSize: 20,
           fontWeight: "600",
-          color: colors.text,
+          color: colors.textPrimary,
           marginBottom: 8,
           textAlign: "center",
         }}
@@ -341,9 +340,8 @@ export default function UploadPage() {
       >
         <Text
           style={{
-            color: colors.primaryForeground,
+            color: colors.white,
             fontWeight: "600",
-            fontSize: 16,
           }}
         >
           Unlock for $9.99
@@ -400,9 +398,8 @@ export default function UploadPage() {
         return
       }
 
-      // Check file size limit (10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        Alert.alert("File Too Large", "Please select a PDF file smaller than 10MB.")
+      if (file.size > 50 * 1024 * 1024) {
+        Alert.alert("File Too Large", "Please select a PDF file smaller than 50MB.")
         return
       }
 
@@ -452,38 +449,34 @@ export default function UploadPage() {
 
   const uploadFile = async (file: any, fileId: string, pdfDetails: PDFFormData) => {
     try {
-      console.log("[v0] File object for upload:", {
+      console.log("[v0] Starting file upload:", {
         uri: file.uri,
         type: file.mimeType || "application/pdf",
         name: file.name,
+        size: file.size,
       })
 
-      const baseUrl = getBaseApiUrl() // Use the declared getBaseApiUrl variable
-      const uploadUrl = `${baseUrl}/api/pdf/upload`
+      const uploadUrl = `${getPdfApiUrl()}/upload`
       console.log("[v0] Uploading to:", uploadUrl)
 
       if (!authToken) {
-        console.log("[v0] Auth token: Missing")
+        console.log("[v0] Auth token missing")
         throw new Error("Authentication token not found")
       }
-      console.log("[v0] Auth token: Present")
 
       const formData = new FormData()
-      formData.append("file", {
-        uri: file.uri,
-        type: "application/pdf",
-        name: file.name,
-      } as any)
 
-      // Add PDF details to form data
+      // Add PDF metadata to FormData
       formData.append("title", pdfDetails.title)
       formData.append("course", pdfDetails.course)
       formData.append("level", pdfDetails.level)
       formData.append("topic", pdfDetails.topic)
       formData.append("year", pdfDetails.year)
 
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 minutes timeout
+      const fileBlob = await fetch(file.uri).then((r) => r.blob())
+      formData.append("file", fileBlob, file.name)
+
+      console.log("[v0] FormData prepared with file and metadata")
 
       // Simulate progress updates
       const progressInterval = setInterval(() => {
@@ -494,12 +487,15 @@ export default function UploadPage() {
         )
       }, 1000)
 
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 600000) // 10 minutes timeout
+
       const response = await fetch(uploadUrl, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${authToken}`,
         },
-        body: formData,
+        body: formData, // Send FormData instead of JSON
         signal: controller.signal,
       })
 
@@ -507,7 +503,6 @@ export default function UploadPage() {
       clearInterval(progressInterval)
 
       console.log("[v0] Upload response status:", response.status)
-      console.log("[v0] Upload response headers:", Object.fromEntries(response.headers.entries()))
 
       const responseData = await response.json()
       console.log("[v0] Upload response data:", responseData)
@@ -517,11 +512,24 @@ export default function UploadPage() {
         setUploadedFiles((prev) =>
           prev.map((f) =>
             f.id === fileId
-              ? { ...f, uploadProgress: 100, status: "completed", downloadLink: responseData.downloadLink }
+              ? {
+                  ...f,
+                  uploadProgress: 100,
+                  status: "completed",
+                  downloadLink: `${getPdfApiUrl()}/download/${responseData.pdf?._id}`,
+                }
               : f,
           ),
         )
         Alert.alert("Success", "PDF uploaded successfully!")
+
+        if (responseData.user?.coins !== undefined) {
+          setUserCoins(responseData.user.coins)
+          const userData = await getUserData()
+          if (userData) {
+            await saveUserData({ ...userData, coins: responseData.user.coins })
+          }
+        }
       } else {
         console.log("[v0] Upload failed:", responseData.message)
         setUploadedFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "error" } : f)))
@@ -567,10 +575,14 @@ export default function UploadPage() {
     const file = uploadedFiles.find((f) => f.id === fileId)
     if (file?.downloadLink) {
       try {
+        console.log("[v0] Opening download link:", file.downloadLink)
         await Linking.openURL(file.downloadLink)
       } catch (error) {
+        console.log("[v0] Error opening download link:", error)
         Alert.alert("Error", "Could not open download link")
       }
+    } else {
+      Alert.alert("Error", "Download link not available")
     }
   }
 
@@ -579,7 +591,9 @@ export default function UploadPage() {
       case "completed":
         return <CheckCircle color={colors.primary} size={20} />
       case "error":
-        return <AlertCircle color={colors.destructive} size={20} />
+        return <AlertCircle 
+        //@ts-ignore
+        color={colors.destructive} size={20} />
       default:
         return <Upload color={colors.primary} size={20} />
     }
@@ -587,194 +601,204 @@ export default function UploadPage() {
 
   const PDFDetailsForm = () => (
     <KeyboardAvoidingView>
-    <Modal
-      visible={showUploadForm}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={() => setShowUploadForm(false)}
-    >
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(0,0,0,0.5)",
-          justifyContent: "center",
-          alignItems: "center",
-          padding: 20,
-        }}
+      <Modal
+        visible={showUploadForm}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowUploadForm(false)}
       >
-        <Card
+        <View
           style={{
-            width: "100%",
-            maxWidth: 400,
-            backgroundColor: colors.cardBackground,
-            borderColor: colors.border,
-            padding: 24,
-            borderRadius: 16,
-            maxHeight: "80%",
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
           }}
         >
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <Text
-              style={{
-                fontSize: 24,
-                fontWeight: "bold",
-                color: colors.text,
-                textAlign: "center",
-                marginBottom: 20,
-              }}
-            >
-              PDF Details
-            </Text>
+          <Card
+            style={{
+              width: "100%",
+              maxWidth: 400,
+              backgroundColor: colors.cardBackground,
+              borderColor: colors.border,
+              padding: 24,
+              borderRadius: 16,
+              maxHeight: "80%",
+            }}
+          >
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text
+                style={{
+                  fontSize: 24,
+                  fontWeight: "bold",
+                  color: colors.textPrimary,
+                  textAlign: "center",
+                  marginBottom: 20,
+                }}
+              >
+                PDF Details
+              </Text>
 
-            <View style={{ gap: 16 }}>
-              <View>
-                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 8 }}>Title *</Text>
-                <TextInput
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 8,
-                    padding: 12,
-                    fontSize: 16,
-                    color: colors.text,
-                    backgroundColor: colors.background,
-                  }}
-                  placeholder="Enter document title"
-                  placeholderTextColor={colors.textSecondary}
-                  value={formData.title}
-                  onChangeText={(text) => setFormData((prev) => ({ ...prev, title: text }))}
-                />
+              <View style={{ gap: 16 }}>
+                <View>
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: colors.textPrimary, marginBottom: 8 }}>
+                    Title *
+                  </Text>
+                  <TextInput
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 8,
+                      padding: 12,
+                      fontSize: 16,
+                      color: colors.textPrimary,
+                      backgroundColor: colors.background,
+                    }}
+                    placeholder="Enter document title"
+                    placeholderTextColor={colors.textSecondary}
+                    value={formData.title}
+                    onChangeText={(text) => setFormData((prev) => ({ ...prev, title: text }))}
+                  />
+                </View>
+
+                <View>
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: colors.textPrimary, marginBottom: 8 }}>
+                    Course *
+                  </Text>
+                  <TextInput
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 8,
+                      padding: 12,
+                      fontSize: 16,
+                      color: colors.textPrimary,
+                      backgroundColor: colors.background,
+                    }}
+                    placeholder="e.g., Mathematics, Physics, Chemistry"
+                    placeholderTextColor={colors.textSecondary}
+                    value={formData.course}
+                    onChangeText={(text) => setFormData((prev) => ({ ...prev, course: text }))}
+                  />
+                </View>
+
+                <View>
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: colors.textPrimary, marginBottom: 8 }}>
+                    Level *
+                  </Text>
+                  <TextInput
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 8,
+                      padding: 12,
+                      fontSize: 16,
+                      color: colors.textPrimary,
+                      backgroundColor: colors.background,
+                    }}
+                    placeholder="e.g., Beginner, Intermediate, Advanced"
+                    placeholderTextColor={colors.textSecondary}
+                    value={formData.level}
+                    onChangeText={(text) => setFormData((prev) => ({ ...prev, level: text }))}
+                  />
+                </View>
+
+                <View>
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: colors.textPrimary, marginBottom: 8 }}>
+                    Topic *
+                  </Text>
+                  <TextInput
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 8,
+                      padding: 12,
+                      fontSize: 16,
+                      color: colors.textPrimary,
+                      backgroundColor: colors.background,
+                    }}
+                    placeholder="e.g., Calculus, Quantum Physics, Organic Chemistry"
+                    placeholderTextColor={colors.textSecondary}
+                    value={formData.topic}
+                    onChangeText={(text) => setFormData((prev) => ({ ...prev, topic: text }))}
+                  />
+                </View>
+
+                <View>
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: colors.textPrimary, marginBottom: 8 }}>
+                    Year *
+                  </Text>
+                  <TextInput
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 8,
+                      padding: 12,
+                      fontSize: 16,
+                      color: colors.textPrimary,
+                      backgroundColor: colors.background,
+                    }}
+                    placeholder="e.g., 2024, 2023"
+                    placeholderTextColor={colors.textSecondary}
+                    value={formData.year}
+                    onChangeText={(text) => setFormData((prev) => ({ ...prev, year: text }))}
+                    keyboardType="numeric"
+                  />
+                </View>
+
+                {formData.file && (
+                  <View
+                    style={{
+                      backgroundColor: colors.background,
+                      padding: 12,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ fontSize: 14, fontWeight: "600", color: colors.textPrimary, marginBottom: 4 }}>
+                      Selected File:
+                    </Text>
+                    <Text style={{ fontSize: 14, color: colors.textSecondary }}>
+                      {formData.file.name} ({formatFileSize(formData.file.size)})
+                    </Text>
+                  </View>
+                )}
               </View>
 
-              <View>
-                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 8 }}>Course *</Text>
-                <TextInput
+              <View style={{ flexDirection: "row", gap: 12, marginTop: 24 }}>
+                <TouchableOpacity
+                  onPress={() => setShowUploadForm(false)}
                   style={{
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 8,
-                    padding: 12,
-                    fontSize: 16,
-                    color: colors.text,
-                    backgroundColor: colors.background,
-                  }}
-                  placeholder="e.g., Mathematics, Physics, Chemistry"
-                  placeholderTextColor={colors.textSecondary}
-                  value={formData.course}
-                  onChangeText={(text) => setFormData((prev) => ({ ...prev, course: text }))}
-                />
-              </View>
-
-              <View>
-                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 8 }}>Level *</Text>
-                <TextInput
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 8,
-                    padding: 12,
-                    fontSize: 16,
-                    color: colors.text,
-                    backgroundColor: colors.background,
-                  }}
-                  placeholder="e.g., Beginner, Intermediate, Advanced"
-                  placeholderTextColor={colors.textSecondary}
-                  value={formData.level}
-                  onChangeText={(text) => setFormData((prev) => ({ ...prev, level: text }))}
-                />
-              </View>
-
-              <View>
-                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 8 }}>Topic *</Text>
-                <TextInput
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 8,
-                    padding: 12,
-                    fontSize: 16,
-                    color: colors.text,
-                    backgroundColor: colors.background,
-                  }}
-                  placeholder="e.g., Calculus, Quantum Physics, Organic Chemistry"
-                  placeholderTextColor={colors.textSecondary}
-                  value={formData.topic}
-                  onChangeText={(text) => setFormData((prev) => ({ ...prev, topic: text }))}
-                />
-              </View>
-
-              <View>
-                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 8 }}>Year *</Text>
-                <TextInput
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 8,
-                    padding: 12,
-                    fontSize: 16,
-                    color: colors.text,
-                    backgroundColor: colors.background,
-                  }}
-                  placeholder="e.g., 2024, 2023"
-                  placeholderTextColor={colors.textSecondary}
-                  value={formData.year}
-                  onChangeText={(text) => setFormData((prev) => ({ ...prev, year: text }))}
-                  keyboardType="numeric"
-                />
-              </View>
-
-              {formData.file && (
-                <View
-                  style={{
-                    backgroundColor: colors.background,
-                    padding: 12,
+                    flex: 1,
+                    paddingVertical: 12,
                     borderRadius: 8,
                     borderWidth: 1,
                     borderColor: colors.border,
+                    alignItems: "center",
                   }}
                 >
-                  <Text style={{ fontSize: 14, fontWeight: "600", color: colors.text, marginBottom: 4 }}>
-                    Selected File:
-                  </Text>
-                  <Text style={{ fontSize: 14, color: colors.textSecondary }}>
-                    {formData.file.name} ({formatFileSize(formData.file.size)})
-                  </Text>
-                </View>
-              )}
-            </View>
+                  <Text style={{ color: colors.textSecondary, fontWeight: "600" }}>Cancel</Text>
+                </TouchableOpacity>
 
-            <View style={{ flexDirection: "row", gap: 12, marginTop: 24 }}>
-              <TouchableOpacity
-                onPress={() => setShowUploadForm(false)}
-                style={{
-                  flex: 1,
-                  paddingVertical: 12,
-                  borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  alignItems: "center",
-                }}
-              >
-                <Text style={{ color: colors.textSecondary, fontWeight: "600" }}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={handleFormSubmit}
-                style={{
-                  flex: 1,
-                  backgroundColor: colors.primary,
-                  paddingVertical: 12,
-                  borderRadius: 8,
-                  alignItems: "center",
-                }}
-              >
-                <Text style={{ color: colors.primaryForeground, fontWeight: "600" }}>Upload PDF</Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
-        </Card>
-      </View>
-    </Modal>
+                <TouchableOpacity
+                  onPress={handleFormSubmit}
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.primary,
+                    paddingVertical: 12,
+                    borderRadius: 8,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text style={{ color: colors.white, fontWeight: "600" }}>Upload PDF</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </Card>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   )
 
@@ -796,7 +820,7 @@ export default function UploadPage() {
           style={{
             fontSize: 24,
             fontWeight: "bold",
-            color: colors.text,
+            color: colors.textPrimary,
           }}
         >
           Upload Documents
@@ -870,7 +894,7 @@ export default function UploadPage() {
                   style={{
                     fontSize: 20,
                     fontWeight: "600",
-                    color: colors.text,
+                    color: colors.textPrimary,
                     marginBottom: 8,
                     textAlign: "center",
                   }}
@@ -901,7 +925,7 @@ export default function UploadPage() {
                 >
                   <Text
                     style={{
-                      color: colors.primaryForeground,
+                      color: colors.white,
                       fontWeight: "600",
                     }}
                   >
@@ -917,7 +941,7 @@ export default function UploadPage() {
                     textAlign: "center",
                   }}
                 >
-                  Supports PDF files up to 10MB
+                  Supports PDF files up to 50MB
                 </Text>
               </TouchableOpacity>
             </Card>
@@ -936,7 +960,7 @@ export default function UploadPage() {
             style={{
               fontSize: 18,
               fontWeight: "600",
-              color: colors.text,
+              color: colors.textPrimary,
               marginBottom: 12,
             }}
           >
@@ -964,7 +988,7 @@ export default function UploadPage() {
             style={{
               fontSize: 18,
               fontWeight: "600",
-              color: colors.text,
+              color: colors.textPrimary,
               marginBottom: 12,
             }}
           >
@@ -973,7 +997,7 @@ export default function UploadPage() {
 
           <View style={{ gap: 8 }}>
             <Text style={{ color: colors.textSecondary, fontSize: 14 }}>• Only PDF files are accepted</Text>
-            <Text style={{ color: colors.textSecondary, fontSize: 14 }}>• Maximum file size: 10MB</Text>
+            <Text style={{ color: colors.textSecondary, fontSize: 14 }}>• Maximum file size: 50MB</Text>
             <Text style={{ color: colors.textSecondary, fontSize: 14 }}>• Files should be school-related content</Text>
             <Text style={{ color: colors.textSecondary, fontSize: 14 }}>• Inappropriate content will be removed</Text>
           </View>
@@ -988,7 +1012,7 @@ export default function UploadPage() {
                 style={{
                   fontSize: 18,
                   fontWeight: "600",
-                  color: colors.text,
+                  color: colors.textPrimary,
                 }}
               >
                 Uploaded Files ({uploadedFiles.length})
@@ -1045,7 +1069,7 @@ export default function UploadPage() {
                         style={{
                           fontSize: 16,
                           fontWeight: "500",
-                          color: colors.text,
+                          color: colors.textPrimary,
                           marginBottom: 4,
                         }}
                       >
@@ -1156,7 +1180,7 @@ export default function UploadPage() {
               >
                 <Text
                   style={{
-                    color: colors.primaryForeground,
+                    color: colors.white,
                     fontWeight: "600",
                     fontSize: 16,
                     textAlign: "center",

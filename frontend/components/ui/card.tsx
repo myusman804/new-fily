@@ -1,8 +1,7 @@
 "use client"
-
 import type React from "react"
 import { View, Text, StyleSheet, type ViewStyle, type TextStyle } from "react-native"
-import { useTheme } from "@/components/theme-context" // Import useTheme
+import { useTheme } from "../theme-context" // Import useTheme
 import type { ThemeContextType } from "@/components/theme-context" // Declare ThemeContextType
 
 interface CardProps {
