@@ -45,6 +45,7 @@ const UserSchema = new mongoose.Schema(
       type: Number,
       default: 100, // 100MB default limit
     },
+    // Additional fields can be added here
   },
   {
     timestamps: true,
@@ -53,6 +54,12 @@ const UserSchema = new mongoose.Schema(
 
 // Index for better query performance
 UserSchema.index({ isVerified: 1 })
+
+// Additional methods or hooks can be added here
+UserSchema.methods.verifyUser = function () {
+  this.isVerified = true
+  this.save()
+}
 
 const User = mongoose.model("User", UserSchema)
 module.exports = User

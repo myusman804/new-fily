@@ -4,25 +4,55 @@ const fs = require("fs")
 const PDF = require("../models/PDF")
 const User = require("../models/User")
 
+const ensureUploadDir = () => {
+  const uploadDir = "uploads/temp"
+  try {
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true })
+      console.log("[v0] Created upload directory:", uploadDir)
+    }
+  } catch (error) {
+    console.error("[v0] Error creating upload directory:", error)
+    throw error
+  }
+}
+
+// Initialize upload directory
+ensureUploadDir()
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = "uploads/temp"
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true })
+    try {
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true })
+      }
+      cb(null, uploadDir)
+    } catch (error) {
+      console.error("[v0] Error in multer destination:", error)
+      cb(error, null)
     }
-    cb(null, uploadDir)
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9)
-    cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname))
+    try {
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9)
+      const filename = file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname)
+      console.log("[v0] Generated filename:", filename)
+      cb(null, filename)
+    } catch (error) {
+      console.error("[v0] Error generating filename:", error)
+      cb(error, null)
+    }
   },
 })
 
 const fileFilter = (req, file, cb) => {
+  console.log("[v0] File filter - mimetype:", file.mimetype)
   if (file.mimetype === "application/pdf") {
     cb(null, true)
   } else {
+    console.log("[v0] File rejected - not PDF")
     cb(new Error("Only PDF files are allowed"), false)
   }
 }
@@ -43,22 +73,46 @@ const calculatePrice = (sizeBytes) => {
 }
 
 const uploadPDF = async (req, res) => {
+  let tempFilePath = null
+
   try {
     console.log("[v0] PDF upload request received")
-    console.log("[v0] User ID:", req.user.id)
+    console.log("[v0] User ID:", req.user?.id)
     console.log("[v0] Request body:", req.body)
-    console.log("[v0] File info:", req.file ? { name: req.file.originalname, size: req.file.size } : "No file")
+    console.log(
+      "[v0] File info:",
+      req.file ? { name: req.file.originalname, size: req.file.size, path: req.file.path } : "No file",
+    )
 
-    const userId = req.user.id
+    tempFilePath = req.file?.path
+
+    const userId = req.user?.id
+    if (!userId) {
+      console.log("[v0] No user ID found in request")
+      return res.status(401).json({ message: "Authentication required" })
+    }
+
     const file = req.file
     const { title, course, level, topic, year } = req.body
 
-    const user = await User.findById(userId)
+    console.log("[v0] Checking database connection...")
+
+    let user
+    try {
+      user = await User.findById(userId)
+      console.log("[v0] User found:", user ? "Yes" : "No")
+    } catch (dbError) {
+      console.error("[v0] Database error finding user:", dbError)
+      return res.status(500).json({ message: "Database connection error" })
+    }
+
     if (!user) {
+      console.log("[v0] User not found in database")
       return res.status(404).json({ message: "User not found" })
     }
 
     if (!user.isVerified) {
+      console.log("[v0] User not verified")
       return res.status(403).json({ message: "Please verify your email first" })
     }
 
@@ -76,6 +130,7 @@ const uploadPDF = async (req, res) => {
 
     if (!title || !course || !level || !topic || !year) {
       console.log("[v0] Missing required PDF details - returning 400")
+      console.log("[v0] Received:", { title, course, level, topic, year })
       return res.status(400).json({ message: "All PDF details are required: title, course, level, topic, year" })
     }
 
@@ -85,37 +140,67 @@ const uploadPDF = async (req, res) => {
     console.log("[v0] Calculated price:", price)
 
     console.log("[v0] Reading file data for MongoDB storage")
-    // Read file data as base64 for MongoDB storage
-    const fileData = fs.readFileSync(file.path)
-    const base64Data = fileData.toString("base64")
+    if (!fs.existsSync(file.path)) {
+      console.error("[v0] Uploaded file not found at path:", file.path)
+      return res.status(500).json({ message: "Uploaded file not found" })
+    }
+
+    let fileData, base64Data
+    try {
+      fileData = fs.readFileSync(file.path)
+      base64Data = fileData.toString("base64")
+      console.log("[v0] File data read successfully, size:", base64Data.length)
+    } catch (fileError) {
+      console.error("[v0] Error reading file:", fileError)
+      return res.status(500).json({ message: "Error processing uploaded file" })
+    }
 
     console.log("[v0] Creating PDF record in database")
-    const pdfRecord = new PDF({
-      userId: userId,
-      title: title.trim(),
-      course: course.trim(),
-      level: level.trim(),
-      topic: topic.trim(),
-      year: year.trim(),
-      fileName: file.filename,
-      originalName: file.originalname,
-      fileSize: file.size,
-      price: price,
-      fileData: base64Data,
-      mimeType: file.mimetype,
-      status: "completed",
-    })
+    let pdfRecord
+    try {
+      pdfRecord = new PDF({
+        userId: userId,
+        title: title.trim(),
+        course: course.trim(),
+        level: level.trim(),
+        topic: topic.trim(),
+        year: year.trim(),
+        fileName: file.filename,
+        originalName: file.originalname,
+        fileSize: file.size,
+        price: price,
+        fileData: base64Data,
+        mimeType: file.mimetype,
+        status: "completed",
+      })
 
-    await pdfRecord.save()
-    console.log("[v0] PDF record created with ID:", pdfRecord._id)
+      await pdfRecord.save()
+      console.log("[v0] PDF record created with ID:", pdfRecord._id)
+    } catch (dbError) {
+      console.error("[v0] Database error saving PDF:", dbError)
+      return res.status(500).json({ message: "Error saving PDF to database" })
+    }
 
-    user.uploadCount = (user.uploadCount || 0) + 1
-    user.coins = (user.coins || 0) + Math.floor(price * 10) // Award coins based on upload
-    await user.save()
+    try {
+      user.uploadCount = (user.uploadCount || 0) + 1
+      user.coins = (user.coins || 0) + Math.floor(price * 10) // Award coins based on upload
+      await user.save()
+      console.log("[v0] User stats updated - uploads:", user.uploadCount, "coins:", user.coins)
+    } catch (userUpdateError) {
+      console.error("[v0] Error updating user stats:", userUpdateError)
+      // Don't fail the request if user stats update fails
+    }
 
     // Clean up temporary file
-    fs.unlinkSync(file.path)
-    console.log("[v0] Temporary file cleaned up")
+    try {
+      if (tempFilePath && fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath)
+        console.log("[v0] Temporary file cleaned up")
+      }
+    } catch (cleanupError) {
+      console.error("[v0] Error cleaning up temp file:", cleanupError)
+      // Don't fail the request if cleanup fails
+    }
 
     res.status(200).json({
       message: "PDF uploaded successfully",
@@ -137,15 +222,30 @@ const uploadPDF = async (req, res) => {
       },
     })
   } catch (error) {
-    console.log("[v0] PDF upload error:", error)
+    console.error("[v0] PDF upload error:", error)
+    console.error("[v0] Error stack:", error.stack)
 
-    // Clean up temporary file if it exists
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path)
+    if (tempFilePath) {
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath)
+          console.log("[v0] Cleaned up temp file after error")
+        }
+      } catch (cleanupError) {
+        console.error("[v0] Error during cleanup:", cleanupError)
+      }
     }
 
-    console.error("PDF upload error:", error)
-    res.status(500).json({ message: "Server error during PDF upload" })
+    let errorMessage = "Server error during PDF upload"
+    if (error.message.includes("ENOENT")) {
+      errorMessage = "File system error - upload directory not accessible"
+    } else if (error.message.includes("MongoError") || error.message.includes("ValidationError")) {
+      errorMessage = "Database error during upload"
+    } else if (error.message.includes("ENOSPC")) {
+      errorMessage = "Server storage full"
+    }
+
+    res.status(500).json({ message: errorMessage })
   }
 }
 
@@ -178,6 +278,7 @@ const getUserPDFs = async (req, res) => {
   }
 }
 
+// Search PDFs
 const searchPDFs = async (req, res) => {
   try {
     const userId = req.user.id
@@ -243,6 +344,7 @@ const deletePDF = async (req, res) => {
   }
 }
 
+// Get PDF Download Link
 const getPDFDownloadLink = async (req, res) => {
   try {
     const pdfId = req.params.id

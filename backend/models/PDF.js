@@ -49,8 +49,8 @@ const PdfSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
-    gridfsFileId: {
-      type: mongoose.Schema.Types.ObjectId,
+    fileData: {
+      type: String,
       required: true,
     },
     mimeType: {
