@@ -14,7 +14,7 @@ import {
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useTheme } from "@/components/theme-context"
-import { getPdfApiUrl, getAuthToken } from "../../lib/api"
+import { getPdfApiUrl, getAuthToken, getAllPdfs, searchAllPdfs, deletePdf } from "@/lib/api"
 
 interface PDF {
   _id: string
@@ -28,6 +28,10 @@ interface PDF {
   fileSize: number
   uploadedAt: string
   status: string
+  uploader?: {
+    name: string
+    email: string
+  }
 }
 
 export default function OverviewPage() {
@@ -41,44 +45,42 @@ export default function OverviewPage() {
 
   const fetchPdfs = async () => {
     try {
-      const token = await getAuthToken()
-      console.log("[v0] Token retrieved:", token)
-      if (!token) {
-        Alert.alert("Authentication Error", "Please log in to view your PDFs")
-        return
+      console.log("[v0] Fetching all PDFs...")
+      const response = await getAllPdfs()
+
+      if (response.error) {
+        throw new Error(response.message)
       }
 
-      console.log("[v0] Fetching PDFs from:", `${getPdfApiUrl()}/my-pdfs`)
-      const response = await fetch(`${getPdfApiUrl()}/my-pdfs`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      })
-
-      console.log("[v0] Response status:", response.status)
-      if (response.ok) {
-        const data = await response.json()
-        console.log("[v0] PDFs fetched:", data)
-        setPdfs(data.pdfs || [])
-        setFilteredPdfs(data.pdfs || [])
-      } else {
-        const errorText = await response.text()
-        console.log("[v0] Error response:", errorText)
-        throw new Error("Failed to fetch PDFs")
-      }
+      console.log("[v0] PDFs fetched:", response)
+      setPdfs(response.pdfs || [])
+      setFilteredPdfs(response.pdfs || [])
     } catch (error) {
       console.error("Error fetching PDFs:", error)
-      Alert.alert("Error", "Failed to load your PDFs")
+      Alert.alert("Error", "Failed to load PDFs")
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
   }
 
-  const handleSearch = (query: string) => {
+  const handleSearch = async (query: string) => {
     setSearchQuery(query)
-    filterPdfs(query, selectedFilter)
+
+    if (query.trim()) {
+      try {
+        const response = await searchAllPdfs(query)
+        if (response.error) {
+          throw new Error(response.message)
+        }
+        setFilteredPdfs(response.pdfs || [])
+      } catch (error) {
+        console.error("Search error:", error)
+        filterPdfs(query, selectedFilter)
+      }
+    } else {
+      filterPdfs(query, selectedFilter)
+    }
   }
 
   const handleFilterChange = (filter: string) => {
@@ -94,7 +96,8 @@ export default function OverviewPage() {
         (pdf) =>
           pdf.title.toLowerCase().includes(query.toLowerCase()) ||
           pdf.course.toLowerCase().includes(query.toLowerCase()) ||
-          pdf.topic.toLowerCase().includes(query.toLowerCase()),
+          pdf.topic.toLowerCase().includes(query.toLowerCase()) ||
+          (pdf.uploader && pdf.uploader.name.toLowerCase().includes(query.toLowerCase())),
       )
     }
 
@@ -134,22 +137,15 @@ export default function OverviewPage() {
         style: "destructive",
         onPress: async () => {
           try {
-            const token = await getAuthToken()
-            const response = await fetch(`${getPdfApiUrl()}/delete/${pdfId}`, {
-              method: "DELETE",
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            })
+            const response = await deletePdf(pdfId)
 
-            if (response.ok) {
-              setPdfs((prev) => prev.filter((pdf) => pdf._id !== pdfId))
-              setFilteredPdfs((prev) => prev.filter((pdf) => pdf._id !== pdfId))
-              Alert.alert("Success", `${title} has been deleted`)
-            } else {
-              const errorData = await response.json()
-              throw new Error(errorData.message || "Delete failed")
+            if (response.error) {
+              throw new Error(response.message)
             }
+
+            setPdfs((prev) => prev.filter((pdf) => pdf._id !== pdfId))
+            setFilteredPdfs((prev) => prev.filter((pdf) => pdf._id !== pdfId))
+            Alert.alert("Success", `${title} has been deleted`)
           } catch (error) {
             console.error("Delete error:", error)
             Alert.alert("Delete Failed", "Unable to delete the PDF")
@@ -240,14 +236,14 @@ export default function OverviewPage() {
             marginBottom: 8,
           }}
         >
-          📚 PDF Library
+          📚 All PDFs Library
         </Text>
         <Text
           style={{
             color: colors.textSecondary,
           }}
         >
-          {filteredPdfs.length} of {pdfs.length} documents
+          {filteredPdfs.length} of {pdfs.length} documents from all users
         </Text>
       </View>
 
@@ -277,7 +273,7 @@ export default function OverviewPage() {
                 fontSize: 16,
                 color: colors.textPrimary,
               }}
-              placeholder="Search PDFs by title, course, or topic..."
+              placeholder="Search PDFs by title, course, topic, or uploader..."
               placeholderTextColor={colors.textSecondary}
               value={searchQuery}
               onChangeText={handleSearch}
@@ -344,7 +340,7 @@ export default function OverviewPage() {
               >
                 {searchQuery || selectedFilter !== "all"
                   ? "Try adjusting your search or filter criteria"
-                  : "Upload your first PDF to get started"}
+                  : "No PDFs have been uploaded to the system yet"}
               </Text>
             </View>
           ) : (
@@ -385,6 +381,32 @@ export default function OverviewPage() {
                       >
                         {pdf.title}
                       </Text>
+                      {pdf.uploader && (
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            marginBottom: 4,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: colors.primary,
+                              marginRight: 4,
+                            }}
+                          >
+                            👤
+                          </Text>
+                          <Text
+                            style={{
+                              fontSize: 14,
+                              color: colors.textSecondary,
+                            }}
+                          >
+                            Uploaded by {pdf.uploader.name}
+                          </Text>
+                        </View>
+                      )}
                       <View
                         style={{
                           flexDirection: "row",

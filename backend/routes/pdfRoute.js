@@ -4,17 +4,21 @@ const {
   upload,
   uploadPDF,
   getUserPDFs,
+  getAllPDFs, // Added getAllPDFs import
   searchPDFs,
+  searchAllPDFs, // Added searchAllPDFs import
   deletePDF,
   getPDFDownloadLink,
 } = require("../controllers/pdfController")
-const authController = require("../controllers/authController") // Ensure this is imported
+const authController = require("../controllers/authController")
 
 const router = express.Router()
 
 router.post("/upload", authMiddleware, upload.single("file"), uploadPDF)
 router.get("/my-pdfs", authMiddleware, getUserPDFs)
+router.get("/all-pdfs", authMiddleware, getAllPDFs) // Added route to get all PDFs from all users
 router.get("/search", authMiddleware, searchPDFs)
+router.get("/search-all", authMiddleware, searchAllPDFs) // Added route to search all PDFs
 router.delete("/:id", authMiddleware, deletePDF)
 router.get("/download/:id", authMiddleware, getPDFDownloadLink)
 

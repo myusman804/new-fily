@@ -373,11 +373,96 @@ const getPDFDownloadLink = async (req, res) => {
   }
 }
 
+// Get all PDFs from all users (for overview/admin purposes)
+const getAllPDFs = async (req, res) => {
+  try {
+    const page = Number.parseInt(req.query.page) || 1
+    const limit = Number.parseInt(req.query.limit) || 20
+    const skip = (page - 1) * limit
+
+    const pdfs = await PDF.find({})
+      .populate("userId", "name email") // Include user name and email
+      .sort({ uploadDate: -1 })
+      .skip(skip)
+      .limit(limit)
+      .select("-fileData")
+
+    const total = await PDF.countDocuments({})
+
+    res.status(200).json({
+      message: "All PDFs retrieved successfully",
+      pdfs: pdfs,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+    })
+  } catch (error) {
+    console.error("Get all PDFs error:", error)
+    res.status(500).json({ message: "Server error retrieving all PDFs" })
+  }
+}
+
+// Search all PDFs from all users
+const searchAllPDFs = async (req, res) => {
+  try {
+    const { query, course, level, topic, year } = req.query
+    const page = Number.parseInt(req.query.page) || 1
+    const limit = Number.parseInt(req.query.limit) || 20
+    const skip = (page - 1) * limit
+
+    const searchFilter = {}
+
+    // Build search filter
+    if (query) {
+      searchFilter.$or = [
+        { title: { $regex: query, $options: "i" } },
+        { topic: { $regex: query, $options: "i" } },
+        { course: { $regex: query, $options: "i" } },
+      ]
+    }
+
+    if (course) searchFilter.course = { $regex: course, $options: "i" }
+    if (level) searchFilter.level = { $regex: level, $options: "i" }
+    if (topic) searchFilter.topic = { $regex: topic, $options: "i" }
+    if (year) searchFilter.year = year
+
+    const pdfs = await PDF.find(searchFilter)
+      .populate("userId", "name email")
+      .sort({ uploadDate: -1 })
+      .skip(skip)
+      .limit(limit)
+      .select("-fileData")
+
+    const total = await PDF.countDocuments(searchFilter)
+
+    res.status(200).json({
+      message: "All PDFs search completed",
+      pdfs: pdfs,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+    })
+  } catch (error) {
+    console.error("Search all PDFs error:", error)
+    res.status(500).json({ message: "Server error searching all PDFs" })
+  }
+}
+
 module.exports = {
   upload,
   uploadPDF,
   getUserPDFs,
+  getAllPDFs, // Added getAllPDFs to exports
   searchPDFs,
+  searchAllPDFs, // Added searchAllPDFs to exports
   deletePDF,
   getPDFDownloadLink,
 }

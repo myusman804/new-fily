@@ -1,15 +1,6 @@
-function getBackendUrl(): string {
-  // In Next.js, only NEXT_PUBLIC_ prefixed variables are available in the browser
-  if (typeof window !== "undefined") {
-    // Client-side: use NEXT_PUBLIC_ prefixed variables
-    return process.env.NEXT_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.98.122:3000"
-  } else {
-    // Server-side: can access any environment variable
-    return process.env.NEXT_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.98.122:3000"
-  }
-}
+import { getAuthToken } from "./auth-storage"
 
-export const BACKEND_BASE_URL = getBackendUrl()
+const BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.98.122:3000"
 
 async function makeRequestWithTimeout(url: string, options: RequestInit, timeoutMs = 10000) {
   const controller = new AbortController()
@@ -116,7 +107,7 @@ export async function loginUser(data: { email: string; password: string }) {
 }
 
 export async function logoutUser() {
-  const token = getAuthToken()
+  const token = await getAuthToken()
   return makeRequest(`${getBaseApiUrl()}/logout`, {
     method: "POST",
     headers: {
@@ -127,7 +118,7 @@ export async function logoutUser() {
 }
 
 export async function getDashboardData() {
-  const token = getAuthToken()
+  const token = await getAuthToken()
   return makeRequest(`${getBaseApiUrl()}/dashboard`, {
     method: "GET",
     headers: {
@@ -170,66 +161,9 @@ export async function testConnection() {
   }
 }
 
-const TOKEN_KEY = "auth_token"
-const USER_DATA_KEY = "user_data"
-
-export const saveAuthToken = (token: string) => {
-  try {
-    localStorage.setItem(TOKEN_KEY, token)
-    console.log("✅ Token saved:", token)
-  } catch (error) {
-    console.error("❌ Saving token failed:", error)
-  }
-}
-
-export const saveUserData = (userData: any) => {
-  try {
-    localStorage.setItem(USER_DATA_KEY, JSON.stringify(userData))
-    console.log("✅ User data saved:", userData)
-  } catch (error) {
-    console.error("❌ Saving user data failed:", error)
-  }
-}
-
-export const getUserData = (): any | null => {
-  try {
-    const userData = localStorage.getItem(USER_DATA_KEY)
-    if (userData) {
-      const parsed = JSON.parse(userData)
-      console.log("🔁 User data retrieved:", parsed)
-      return parsed
-    }
-    return null
-  } catch (error) {
-    console.error("❌ Retrieving user data failed:", error)
-    return null
-  }
-}
-
-export const getAuthToken = (): string | null => {
-  try {
-    const token = localStorage.getItem(TOKEN_KEY)
-    console.log("🔁 Token retrieved:", token)
-    return token
-  } catch (error) {
-    console.error("❌ Retrieving token failed:", error)
-    return null
-  }
-}
-
-export const removeAuthToken = () => {
-  try {
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(USER_DATA_KEY)
-    console.log("🗑️ Token and user data removed")
-  } catch (error) {
-    console.error("❌ Removing token failed:", error)
-  }
-}
-
 export async function changePassword(data: { oldPassword: string; newPassword: string }) {
-  const token = await import("./auth-storage").then((m) => m.getAuthToken())
-  return makeRequest(`${BACKEND_BASE_URL}/api/auths/change-password`, {
+  const token = await getAuthToken()
+  return makeRequest(`${getBaseApiUrl()}/api/auths/change-password`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -239,11 +173,70 @@ export async function changePassword(data: { oldPassword: string; newPassword: s
   })
 }
 
-export const removeUserData = () => {
-  try {
-    localStorage.removeItem(USER_DATA_KEY)
-    console.log("🗑️ User data removed")
-  } catch (error) {
-    console.error("❌ Removing user data failed:", error)
-  }
+export async function getAllPdfs() {
+  const token = await getAuthToken()
+  return makeRequest(`${getPdfApiUrl()}/all-pdfs`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+  })
 }
+
+export async function searchAllPdfs(query: string) {
+  const token = await getAuthToken()
+  return makeRequest(`${getPdfApiUrl()}/search-all?q=${encodeURIComponent(query)}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+  })
+}
+
+export async function getMyPdfs() {
+  const token = await getAuthToken()
+  return makeRequest(`${getPdfApiUrl()}/my-pdfs`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+  })
+}
+
+export async function deletePdf(pdfId: string) {
+  const token = await getAuthToken()
+  return makeRequest(`${getPdfApiUrl()}/${pdfId}`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+  })
+}
+
+export async function uploadPdf(formData: FormData) {
+  const token = await getAuthToken()
+  return makeRequest(`${getPdfApiUrl()}/upload`, {
+    method: "POST",
+    headers: {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: formData,
+  })
+}
+
+export async function updateUploadPaymentStatus() {
+  const token = await getAuthToken()
+  return makeRequest(`${getBaseApiUrl()}/update-upload-payment-status`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+  })
+}
+
+export { getAuthToken } from "./auth-storage"
