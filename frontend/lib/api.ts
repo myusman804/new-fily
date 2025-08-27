@@ -229,7 +229,7 @@ export const removeAuthToken = () => {
 
 export async function changePassword(data: { oldPassword: string; newPassword: string }) {
   const token = await import("./auth-storage").then((m) => m.getAuthToken())
-  return makeRequest(`${BACKEND_BASE_URL}/api/auth/change-password`, {
+  return makeRequest(`${BACKEND_BASE_URL}/api/auths/change-password`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

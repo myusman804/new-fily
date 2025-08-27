@@ -254,31 +254,26 @@ const changePassword = async (req, res) => {
   }
 }
 
-
 const updateUploadPaymentStatus = async (req, res) => {
   try {
-    const user = await User.findById(req.userId)
+    const userId = req.user.id
+
+    // Update user's payment status for upload access
+    const user = await User.findByIdAndUpdate(userId, { hasPaidForUpload: true }, { new: true })
+
     if (!user) {
       return res.status(404).json({ message: "User not found" })
     }
 
-    // Grant upload access
-    user.hasUploadAccess = true
-    await user.save()
+    console.log(`[v0] Updated payment status for user ${userId}:`, user.hasPaidForUpload)
 
     res.json({
-      message: "Upload access granted successfully",
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        coins: user.coins,
-        hasUploadAccess: user.hasUploadAccess,
-      },
+      message: "Payment status updated successfully",
+      hasPaidForUpload: user.hasPaidForUpload,
     })
   } catch (error) {
-    console.error("Payment status update error:", error)
-    res.status(500).json({ message: "Server error updating payment status" })
+    console.error("[v0] Update payment status error:", error)
+    res.status(500).json({ message: "Server error" })
   }
 }
 
@@ -290,5 +285,5 @@ module.exports = {
   logout,
   dashboard,
   updateUploadPaymentStatus,
-  changePassword
+  changePassword,
 }

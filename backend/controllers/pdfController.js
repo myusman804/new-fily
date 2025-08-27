@@ -45,11 +45,11 @@ const calculatePrice = (sizeBytes) => {
 const uploadPDF = async (req, res) => {
   try {
     console.log("[v0] PDF upload request received")
-    console.log("[v0] User ID:", req.userId)
+    console.log("[v0] User ID:", req.user.id)
     console.log("[v0] Request body:", req.body)
     console.log("[v0] File info:", req.file ? { name: req.file.originalname, size: req.file.size } : "No file")
 
-    const userId = req.userId
+    const userId = req.user.id
     const file = req.file
     const { title, course, level, topic, year } = req.body
 
@@ -62,9 +62,12 @@ const uploadPDF = async (req, res) => {
       return res.status(403).json({ message: "Please verify your email first" })
     }
 
-    if (!user.hasUploadAccess) {
+    if (!user.hasPaidForUpload) {
+      console.log(`[v0] User ${userId} upload access denied - hasPaidForUpload:`, user.hasPaidForUpload)
       return res.status(403).json({ message: "Upload access required. Please complete payment." })
     }
+
+    console.log(`[v0] User ${userId} has upload access - hasPaidForUpload:`, user.hasPaidForUpload)
 
     if (!file) {
       console.log("[v0] No file uploaded - returning 400")
@@ -149,7 +152,7 @@ const uploadPDF = async (req, res) => {
 // Get user's PDFs
 const getUserPDFs = async (req, res) => {
   try {
-    const userId = req.userId
+    const userId = req.user.id
     const page = Number.parseInt(req.query.page) || 1
     const limit = Number.parseInt(req.query.limit) || 10
     const skip = (page - 1) * limit
@@ -177,7 +180,7 @@ const getUserPDFs = async (req, res) => {
 
 const searchPDFs = async (req, res) => {
   try {
-    const userId = req.userId
+    const userId = req.user.id
     const { query, course, level, topic, year } = req.query
     const page = Number.parseInt(req.query.page) || 1
     const limit = Number.parseInt(req.query.limit) || 10
@@ -223,7 +226,7 @@ const searchPDFs = async (req, res) => {
 // Delete PDF
 const deletePDF = async (req, res) => {
   try {
-    const userId = req.userId
+    const userId = req.user.id
     const pdfId = req.params.id
 
     const pdf = await PDF.findOne({ _id: pdfId, userId })
@@ -243,7 +246,7 @@ const deletePDF = async (req, res) => {
 const getPDFDownloadLink = async (req, res) => {
   try {
     const pdfId = req.params.id
-    const userId = req.userId
+    const userId = req.user.id
 
     const pdf = await PDF.findOne({ _id: pdfId, userId })
     if (!pdf) {
