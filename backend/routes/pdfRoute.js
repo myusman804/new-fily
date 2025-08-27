@@ -8,6 +8,7 @@ const {
   deletePDF,
   getPDFDownloadLink,
 } = require("../controllers/pdfController")
+const authController = require("../controllers/authController") // Ensure this is imported
 
 const router = express.Router()
 
@@ -16,6 +17,8 @@ router.get("/my-pdfs", authMiddleware, getUserPDFs)
 router.get("/search", authMiddleware, searchPDFs)
 router.delete("/:id", authMiddleware, deletePDF)
 router.get("/download/:id", authMiddleware, getPDFDownloadLink)
+
+router.post("/update-payment-status", authMiddleware, authController.updateUploadPaymentStatus)
 
 // Health check route for PDF service
 router.get("/health", (req, res) => {

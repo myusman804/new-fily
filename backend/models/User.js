@@ -1,15 +1,58 @@
-import mongoose from "mongoose"
+const mongoose = require("mongoose")
 
-const userSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  isVerified: { type: Boolean, default: false },
-  otp: { type: String },
-  otpExpires: { type: Date },
-  coins: { type: Number, default: 0 },
-  hasPaidForUpload: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now },
-})
+const UserSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+    },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+    },
+    password: {
+      type: String,
+      required: true,
+    },
+    otp: {
+      type: String,
+    },
+    otpExpiry: {
+      type: Date,
+    },
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    coins: {
+      type: Number,
+      default: 5,
+    },
+    hasPaidForUpload: {
+      type: Boolean,
+      default: false,
+    },
+    totalPDFsUploaded: {
+      type: Number,
+      default: 0,
+    },
+    totalStorageUsed: {
+      type: Number,
+      default: 0, // in bytes
+    },
+    uploadLimitMB: {
+      type: Number,
+      default: 100, // 100MB default limit
+    },
+  },
+  {
+    timestamps: true,
+  },
+)
 
-export default mongoose.models.User || mongoose.model("User", userSchema)
+// Index for better query performance
+UserSchema.index({ isVerified: 1 })
+
+const User = mongoose.model("User", UserSchema)
+module.exports = User

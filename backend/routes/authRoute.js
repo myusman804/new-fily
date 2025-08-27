@@ -22,12 +22,4 @@ router.post("/logout", logout)
 router.get("/dashboard", authMiddleware, dashboard)
 router.put("/update-payment-status", authMiddleware, updateUploadPaymentStatus)
 
-// Health check route for auth service
-router.get("/health", (req, res) => {
-  res.status(200).json({
-    message: "Auth service is running",
-    timestamp: new Date().toISOString(),
-  })
-})
-
 module.exports = router
