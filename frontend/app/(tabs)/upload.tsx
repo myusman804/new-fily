@@ -11,6 +11,7 @@ import {
   Platform,
   Keyboard,
   TouchableWithoutFeedback,
+  StyleSheet,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useTheme } from "@/components/theme-context"
@@ -20,6 +21,7 @@ import { Upload, FileText, X, CheckCircle, AlertCircle, Lock } from "lucide-reac
 import { getUserData } from "@/lib/auth-storage"
 import * as DocumentPicker from "expo-document-picker"
 import PDFFormPage from "@/components/form"
+import { useNavigation } from "@react-navigation/native"
 
 interface UploadedFile {
   id: string
@@ -34,21 +36,40 @@ interface UploadedFile {
 
 export default function UploadPage() {
   const { colors } = useTheme()
+  const navigation = useNavigation()
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [hasPaidForUpload, setHasPaidForUpload] = useState<boolean>(false)
   const [showPDFForm, setShowPDFForm] = useState<boolean>(false)
   const [selectedFile, setSelectedFile] = useState<any>(null)
 
-  useEffect(() => {
-    const loadUserData = async () => {
-      const userData = await getUserData()
-      if (userData?.hasPaidForUpload) {
-        setHasPaidForUpload(userData.hasPaidForUpload)
-      }
+  const loadUserData = async () => {
+    const userData = await getUserData()
+    if (userData?.hasPaidForUpload) {
+      setHasPaidForUpload(userData.hasPaidForUpload)
     }
+  }
 
+  const refreshUserData = async () => {
+    try {
+      const userData = await getUserData()
+      if (userData) {
+        setHasPaidForUpload(userData.hasPaidForUpload || false)
+      }
+      console.log("[v0] Refreshed user data, hasPaidForUpload:", userData?.hasPaidForUpload)
+    } catch (error) {
+      console.error("Error refreshing user data:", error)
+    }
+  }
+
+  useEffect(() => {
     loadUserData()
-  }, [])
+
+    const unsubscribe = navigation.addListener("focus", () => {
+      refreshUserData()
+    })
+
+    return unsubscribe
+  }, [navigation])
 
   const LockedUploadArea = () => (
     <Card
@@ -213,7 +234,17 @@ export default function UploadPage() {
             showsVerticalScrollIndicator={false}
           >
             {!hasPaidForUpload ? (
-              <LockedUploadArea />
+              <>
+                <LockedUploadArea />
+                <TouchableOpacity
+                  style={[styles.refreshButton, { backgroundColor: colors.primary }]}
+                  onPress={refreshUserData}
+                >
+                  <Text style={[styles.refreshButtonText, { color: colors.textPrimary }]}>
+                    Already paid? Refresh status
+                  </Text>
+                </TouchableOpacity>
+              </>
             ) : (
               <>
                 <Card
@@ -462,3 +493,19 @@ export default function UploadPage() {
     </KeyboardAvoidingView>
   )
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  refreshButton: {
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+    alignItems: "center",
+  },
+  refreshButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+})

@@ -26,8 +26,8 @@ export default function PaymentTab() {
   useEffect(() => {
     const loadUserData = async () => {
       const userData = await getUserData()
-      if (userData?.hasUploadAccess) {
-        setHasPaidForUpload(userData.hasUploadAccess)
+      if (userData?.hasPaidForUpload) {
+        setHasPaidForUpload(userData.hasPaidForUpload)
       }
 
       const token = await getAuthToken()
@@ -74,7 +74,7 @@ export default function PaymentTab() {
 
         const userData = await getUserData()
         if (userData) {
-          await saveUserData({ ...userData, hasUploadAccess: true })
+          await saveUserData({ ...userData, hasPaidForUpload: true })
         }
 
         Alert.alert("Success", "Payment processed successfully! You can now upload PDF files.")
@@ -122,69 +122,69 @@ export default function PaymentTab() {
   return (
     <SafeAreaView style={themedStyles.safeArea}>
       <ScrollView>
-      <Animated.View style={[themedStyles.header, headerAnimatedStyle]}>
-        <Text style={themedStyles.headerTitle}>Unlock PDF Upload</Text>
-      </Animated.View>
-      <View style={themedStyles.contentContainer}>
-        <Animated.View style={[themedStyles.card, themedStyles.heroCard, cardAnimatedStyle(cardAnim1)]}>
-          <CardContent style={themedStyles.heroContent}>
-            <View style={themedStyles.heroIcon}>
-              <Upload color={colors.primary} size={48} />
-            </View>
-            <Text style={themedStyles.heroTitle}>Premium PDF Upload</Text>
-            <Text style={themedStyles.heroDescription}>
-              Get unlimited access to upload and share PDF documents with your school community
-            </Text>
-            <View style={themedStyles.priceContainer}>
-              <Text style={themedStyles.priceValue}>$9.99</Text>
-              <Text style={themedStyles.priceDescription}>one-time payment</Text>
-            </View>
-          </CardContent>
+        <Animated.View style={[themedStyles.header, headerAnimatedStyle]}>
+          <Text style={themedStyles.headerTitle}>Unlock PDF Upload</Text>
         </Animated.View>
-
-        <Animated.View style={[themedStyles.card, cardAnimatedStyle(cardAnim2)]}>
-          <CardHeader>
-            <CardTitle>Premium Features</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <View style={themedStyles.featureRow}>
-              <Zap color={colors.primary} size={20} />
-              <Text style={themedStyles.featureText}>Upload unlimited PDF files</Text>
-            </View>
-            <View style={themedStyles.featureRow}>
-              <Shield color={colors.primary} size={20} />
-              <Text style={themedStyles.featureText}>Secure file sharing with classmates</Text>
-            </View>
-            <View style={themedStyles.featureRow}>
-              <Star color={colors.primary} size={20} />
-              <Text style={themedStyles.featureText}>Organize files in custom folders</Text>
-            </View>
-            <View style={themedStyles.featureRow}>
-              <CheckCircle color={colors.primary} size={20} />
-              <Text style={themedStyles.featureText}>Priority customer support</Text>
-            </View>
-          </CardContent>
-        </Animated.View>
-
-        <Animated.View style={[themedStyles.card, cardAnimatedStyle(cardAnim3)]}>
-          <CardContent style={themedStyles.paymentContainer}>
-            <Button
-              onPress={handlePayment}
-              disabled={isProcessingPayment}
-              //@ts-ignore
-              style={[themedStyles.paymentButton, { opacity: isProcessingPayment ? 0.7 : 1 }]}
-            >
-              <View style={themedStyles.buttonContent}>
-                <CreditCard color={colors.white} size={20} />
-                <Text style={themedStyles.buttonText}>
-                  {isProcessingPayment ? "Processing..." : "Purchase Now - $9.99"}
-                </Text>
+        <View style={themedStyles.contentContainer}>
+          <Animated.View style={[themedStyles.card, themedStyles.heroCard, cardAnimatedStyle(cardAnim1)]}>
+            <CardContent style={themedStyles.heroContent}>
+              <View style={themedStyles.heroIcon}>
+                <Upload color={colors.primary} size={48} />
               </View>
-            </Button>
-            <Text style={themedStyles.paymentNote}>Secure payment • One-time purchase • Instant access</Text>
-          </CardContent>
-        </Animated.View>
-      </View>
+              <Text style={themedStyles.heroTitle}>Premium PDF Upload</Text>
+              <Text style={themedStyles.heroDescription}>
+                Get unlimited access to upload and share PDF documents with your school community
+              </Text>
+              <View style={themedStyles.priceContainer}>
+                <Text style={themedStyles.priceValue}>$9.99</Text>
+                <Text style={themedStyles.priceDescription}>one-time payment</Text>
+              </View>
+            </CardContent>
+          </Animated.View>
+
+          <Animated.View style={[themedStyles.card, cardAnimatedStyle(cardAnim2)]}>
+            <CardHeader>
+              <CardTitle>Premium Features</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <View style={themedStyles.featureRow}>
+                <Zap color={colors.primary} size={20} />
+                <Text style={themedStyles.featureText}>Upload unlimited PDF files</Text>
+              </View>
+              <View style={themedStyles.featureRow}>
+                <Shield color={colors.primary} size={20} />
+                <Text style={themedStyles.featureText}>Secure file sharing with classmates</Text>
+              </View>
+              <View style={themedStyles.featureRow}>
+                <Star color={colors.primary} size={20} />
+                <Text style={themedStyles.featureText}>Organize files in custom folders</Text>
+              </View>
+              <View style={themedStyles.featureRow}>
+                <CheckCircle color={colors.primary} size={20} />
+                <Text style={themedStyles.featureText}>Priority customer support</Text>
+              </View>
+            </CardContent>
+          </Animated.View>
+
+          <Animated.View style={[themedStyles.card, cardAnimatedStyle(cardAnim3)]}>
+            <CardContent style={themedStyles.paymentContainer}>
+              <Button
+                onPress={handlePayment}
+                disabled={isProcessingPayment}
+                //@ts-ignore
+                style={[themedStyles.paymentButton, { opacity: isProcessingPayment ? 0.7 : 1 }]}
+              >
+                <View style={themedStyles.buttonContent}>
+                  <CreditCard color={colors.white} size={20} />
+                  <Text style={themedStyles.buttonText}>
+                    {isProcessingPayment ? "Processing..." : "Purchase Now - $9.99"}
+                  </Text>
+                </View>
+              </Button>
+              <Text style={themedStyles.paymentNote}>Secure payment • One-time purchase • Instant access</Text>
+            </CardContent>
+          </Animated.View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   )

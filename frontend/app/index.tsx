@@ -7,6 +7,7 @@ import { storage } from "@/utils/storage"
 
 export default function IndexPage() {
   useEffect(() => {
+
     const checkAuth = async () => {
       try {
         const token = await storage.getItem("authToken")
