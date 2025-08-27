@@ -60,7 +60,7 @@ export default function PaymentTab() {
     setIsProcessingPayment(true)
 
     try {
-      const response = await fetch(`${getBaseApiUrl()}/api/auth/update-payment-status`, {
+      const response = await fetch(`${getBaseApiUrl()}/update-payment-status`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
