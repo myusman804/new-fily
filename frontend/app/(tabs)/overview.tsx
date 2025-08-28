@@ -26,7 +26,7 @@ interface PDF {
   fileName: string
   originalName: string
   fileSize: number
-  uploadedAt: string
+  uploadDate: string
   status: string
   uploader?: {
     name: string
@@ -156,7 +156,21 @@ export default function OverviewPage() {
   }
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
+    console.log("[v0] Formatting date:", dateString)
+
+    if (!dateString) {
+      return "No date"
+    }
+
+    const date = new Date(dateString)
+
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      console.log("[v0] Invalid date string:", dateString)
+      return "Invalid date"
+    }
+
+    return date.toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -500,7 +514,7 @@ export default function OverviewPage() {
                           color: colors.textSecondary,
                         }}
                       >
-                        {formatDate(pdf.uploadedAt)}
+                        {formatDate(pdf.uploadDate)}
                       </Text>
                     </View>
                     <Text
@@ -539,23 +553,8 @@ export default function OverviewPage() {
                           color: colors.primary,
                         }}
                       >
-                        Download
+                        Pay to Download
                       </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => handleDelete(pdf._id, pdf.title)}
-                      style={{
-                        backgroundColor: "#ef444420",
-                        borderWidth: 1,
-                        borderColor: "#ef444440",
-                        borderRadius: 8,
-                        paddingVertical: 12,
-                        paddingHorizontal: 16,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Text>🗑️</Text>
                     </TouchableOpacity>
                   </View>
                 </View>

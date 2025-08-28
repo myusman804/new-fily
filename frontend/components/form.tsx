@@ -59,7 +59,7 @@ export default function PDFFormPage({ file, onBack, onUploadComplete }: PDFFormP
   const calculatePrice = (sizeBytes: number): number => {
     const sizeInMB = sizeBytes / (1024 * 1024)
     const basePrice = sizeInMB * 0.1
-    return Math.max(basePrice, 0.5)
+    return Math.max(basePrice, 80)
   }
 
   const formatFileSize = (bytes: number): string => {
@@ -291,7 +291,7 @@ export default function PDFFormPage({ file, onBack, onUploadComplete }: PDFFormP
                       fontWeight: "600",
                     }}
                   >
-                    Estimated cost: ${calculatePrice(file.size).toFixed(2)}
+                    Estimated cost: ₦{calculatePrice(file.size).toFixed(2)}
                   </Text>
                 </View>
               </View>
@@ -346,7 +346,7 @@ export default function PDFFormPage({ file, onBack, onUploadComplete }: PDFFormP
                 //@ts-ignore
                   ref={levelRef}
                   label="Level *"
-                  placeholder="e.g., Beginner, Intermediate, Advanced"
+                  placeholder="e.g., 100lvl, 200lvl, 300lvl, 400lvl"
                   value={formData.level}
                   onChangeText={(text) => setFormData((prev) => ({ ...prev, level: text }))}
                   returnKeyType="next"
@@ -371,8 +371,8 @@ export default function PDFFormPage({ file, onBack, onUploadComplete }: PDFFormP
                 <Input
                 //@ts-ignore
                   ref={yearRef}
-                  label="Year *"
-                  placeholder="e.g., 2024, 2023"
+                  label="semester *"
+                  placeholder="e.g., 1st, 2nd, 3rd, 4th"
                   value={formData.year}
                   onChangeText={(text) => setFormData((prev) => ({ ...prev, year: text }))}
                   keyboardType="numeric"

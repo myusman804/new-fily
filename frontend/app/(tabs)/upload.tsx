@@ -325,7 +325,7 @@ export default function UploadPage() {
                         textAlign: "center",
                       }}
                     >
-                      Supports PDF files up to 50MB • $0.10 per MB (min $0.50)
+                      Supports PDF files up to 50MB • ₦0.10 per MB (min ₦0.50)
                     </Text>
                   </TouchableOpacity>
                 </Card>
