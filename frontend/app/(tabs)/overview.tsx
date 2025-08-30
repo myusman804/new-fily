@@ -13,6 +13,7 @@ import {
   Platform,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
+import * as FileSystem from "expo-file-system"
 import { useTheme } from "@/components/theme-context"
 import {
   getAllPdfs,
@@ -49,7 +50,8 @@ export default function OverviewPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedFilter, setSelectedFilter] = useState<string>("all")
   const [hasDownloadAccess, setHasDownloadAccess] = useState(false)
-  const [checkingPayment, setCheckingPayment] = useState(false)
+  const [downloadingPdfs, setDownloadingPdfs] = useState<Set<string>>(new Set())
+  const [purchasingAccess, setPurchasingAccess] = useState(false)
   const { colors } = useTheme()
 
   const checkPaymentStatus = async () => {
@@ -151,13 +153,12 @@ export default function OverviewPage() {
     }
 
     try {
-      setCheckingPayment(true)
+      setDownloadingPdfs((prev) => new Set(prev).add(pdfId))
       console.log("[v0] Starting download for PDF:", pdfId)
 
       const downloadResult = await downloadPaidPdf(pdfId)
 
       if (Platform.OS === "web") {
-        // Web platform - use blob URL
         const url = URL.createObjectURL(downloadResult.blob)
         const link = document.createElement("a")
         link.href = url
@@ -167,16 +168,131 @@ export default function OverviewPage() {
         document.body.removeChild(link)
         setTimeout(() => URL.revokeObjectURL(url), 1000)
       } else {
-        // React Native - show success message and handle file appropriately
-        Alert.alert(
-          "Download Started",
-          `${downloadResult.filename} (${formatFileSize(downloadResult.size)}) download initiated.`,
-          [{ text: "OK" }],
-        )
+        try {
+          // Convert blob to base64
+          const reader = new FileReader()
+          const base64Promise = new Promise<string>((resolve, reject) => {
+            reader.onload = () => {
+              const result = reader.result as string
+              // Remove data:application/pdf;base64, prefix
+              const base64Data = result.split(",")[1]
+              resolve(base64Data)
+            }
+            reader.onerror = reject
+          })
+          reader.readAsDataURL(downloadResult.blob)
 
-        // For React Native, you would typically use react-native-fs or similar
-        // to save the file to the device's download folder
-        console.log("[v0] File downloaded successfully:", downloadResult.filename)
+          const base64Data = await base64Promise
+
+          let fileUri: string
+          let locationMessage: string
+
+          if (Platform.OS === "android") {
+            try {
+              // Try to use the external storage Downloads directory
+              const externalDir = FileSystem.StorageAccessFramework.getUriForDirectoryInRoot("Download")
+              if (externalDir) {
+                // Use Storage Access Framework for Android 10+
+                const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync()
+                if (permissions.granted) {
+                  const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                    permissions.directoryUri,
+                    downloadResult.filename,
+                    "application/pdf",
+                  )
+                  await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+                    encoding: FileSystem.EncodingType.Base64,
+                  })
+                  locationMessage = "Downloads folder"
+                } else {
+                  throw new Error("Storage permission denied")
+                }
+              } else {
+                throw new Error("External storage not available")
+              }
+            } catch (externalError) {
+              console.log("[v0] External storage failed, using Documents:", externalError)
+              // Fallback to Documents directory
+              fileUri = `${FileSystem.documentDirectory}${downloadResult.filename}`
+              locationMessage = "Documents folder (accessible via Files app)"
+
+              await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+                encoding: FileSystem.EncodingType.Base64,
+              })
+            }
+          } else {
+            // For iOS, use Documents directory (iOS doesn't allow direct access to Downloads)
+            fileUri = `${FileSystem.documentDirectory}${downloadResult.filename}`
+            locationMessage = "Files app (On My iPhone/iPad)"
+
+            await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+              encoding: FileSystem.EncodingType.Base64,
+            })
+          }
+
+          console.log("[v0] File saved successfully")
+
+          Alert.alert(
+            "Download Complete!",
+            `${downloadResult.filename} (${formatFileSize(downloadResult.size)}) has been saved to your device.\n\nLocation: ${locationMessage}`,
+            [
+              { text: "OK" },
+              {
+                text: "Open File",
+                onPress: async () => {
+                  try {
+                    // Try to open the file with system default app
+                    if (Platform.OS === "android" && fileUri) {
+                      await FileSystem.getContentUriAsync(fileUri).then((cUri) => {
+                        console.log("[v0] Opening file at:", cUri)
+                      })
+                    }
+                  } catch (error) {
+                    console.log("[v0] Could not open file:", error)
+                  }
+                },
+              },
+            ],
+          )
+        } catch (fileError) {
+          console.error("[v0] File save error:", fileError)
+          Alert.alert(
+            "Download Error",
+            "Failed to save file to device. The file has been saved to your app's Documents folder instead.",
+            [
+              {
+                text: "OK",
+                onPress: async () => {
+                  // Fallback: save to Documents directory
+                  try {
+                    const reader = new FileReader()
+                    const base64Promise = new Promise<string>((resolve, reject) => {
+                      reader.onload = () => {
+                        const result = reader.result as string
+                        const base64Data = result.split(",")[1]
+                        resolve(base64Data)
+                      }
+                      reader.onerror = reject
+                    })
+                    reader.readAsDataURL(downloadResult.blob)
+
+                    const base64Data = await base64Promise
+                    const fallbackUri = `${FileSystem.documentDirectory}${downloadResult.filename}`
+
+                    await FileSystem.writeAsStringAsync(fallbackUri, base64Data, {
+                      encoding: FileSystem.EncodingType.Base64,
+                    })
+
+                    Alert.alert("Success", "File saved to Documents folder")
+                  } catch (fallbackError) {
+                    console.error("[v0] Fallback save failed:", fallbackError)
+                    Alert.alert("Error", "Unable to save file")
+                  }
+                },
+              },
+            ],
+          )
+        }
       }
     } catch (error) {
       console.error("[v0] Download error:", error)
@@ -194,13 +310,17 @@ export default function OverviewPage() {
         Alert.alert("Download Failed", "Unable to download the PDF")
       }
     } finally {
-      setCheckingPayment(false)
+      setDownloadingPdfs((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(pdfId)
+        return newSet
+      })
     }
   }
 
   const handlePurchaseDownloadAccess = async () => {
     try {
-      setCheckingPayment(true)
+      setPurchasingAccess(true)
 
       Alert.alert(
         "Confirm Purchase",
@@ -238,7 +358,7 @@ export default function OverviewPage() {
       console.error("Purchase error:", error)
       Alert.alert("Error", "Unable to process purchase")
     } finally {
-      setCheckingPayment(false)
+      setPurchasingAccess(false)
     }
   }
 
@@ -468,42 +588,70 @@ export default function OverviewPage() {
             </View>
           ) : (
             <View style={{ gap: 16 }}>
-              {filteredPdfs.map((pdf) => (
-                <View
-                  key={pdf._id}
-                  style={{
-                    backgroundColor: colors.cardBackground,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 12,
-                    padding: 16,
-                    shadowColor: colors.cardShadow,
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 4,
-                    elevation: 3,
-                  }}
-                >
+              {filteredPdfs.map((pdf) => {
+                const isDownloading = downloadingPdfs.has(pdf._id)
+
+                return (
                   <View
+                    key={pdf._id}
                     style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      marginBottom: 12,
+                      backgroundColor: colors.cardBackground,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 12,
+                      padding: 16,
+                      shadowColor: colors.cardShadow,
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 4,
+                      elevation: 3,
                     }}
                   >
-                    <View style={{ flex: 1, marginRight: 12 }}>
-                      <Text
-                        style={{
-                          fontSize: 18,
-                          fontWeight: "600",
-                          color: colors.textPrimary,
-                          marginBottom: 8,
-                        }}
-                      >
-                        {pdf.title}
-                      </Text>
-                      {pdf.uploader && (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        marginBottom: 12,
+                      }}
+                    >
+                      <View style={{ flex: 1, marginRight: 12 }}>
+                        <Text
+                          style={{
+                            fontSize: 18,
+                            fontWeight: "600",
+                            color: colors.textPrimary,
+                            marginBottom: 8,
+                          }}
+                        >
+                          {pdf.title}
+                        </Text>
+                        {pdf.uploader && (
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              marginBottom: 4,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: colors.primary,
+                                marginRight: 4,
+                              }}
+                            >
+                              👤
+                            </Text>
+                            <Text
+                              style={{
+                                fontSize: 14,
+                                color: colors.textSecondary,
+                              }}
+                            >
+                              Uploaded by {pdf.uploader.name}
+                            </Text>
+                          </View>
+                        )}
                         <View
                           style={{
                             flexDirection: "row",
@@ -517,7 +665,7 @@ export default function OverviewPage() {
                               marginRight: 4,
                             }}
                           >
-                            👤
+                            📖
                           </Text>
                           <Text
                             style={{
@@ -525,154 +673,130 @@ export default function OverviewPage() {
                               color: colors.textSecondary,
                             }}
                           >
-                            Uploaded by {pdf.uploader.name}
+                            {pdf.course}
                           </Text>
                         </View>
-                      )}
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                          }}
+                        >
+                          <Text style={{ color: "#8b5cf6", marginRight: 4 }}>🎓</Text>
+                          <Text
+                            style={{
+                              fontSize: 14,
+                              color: colors.textSecondary,
+                            }}
+                          >
+                            {pdf.level}
+                          </Text>
+                        </View>
+                      </View>
                       <View
                         style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          marginBottom: 4,
+                          backgroundColor: `${colors.primary}20`,
+                          padding: 12,
+                          borderRadius: 8,
                         }}
                       >
                         <Text
                           style={{
+                            fontSize: 24,
                             color: colors.primary,
-                            marginRight: 4,
                           }}
                         >
-                          📖
-                        </Text>
-                        <Text
-                          style={{
-                            fontSize: 14,
-                            color: colors.textSecondary,
-                          }}
-                        >
-                          {pdf.course}
-                        </Text>
-                      </View>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                        }}
-                      >
-                        <Text style={{ color: "#8b5cf6", marginRight: 4 }}>🎓</Text>
-                        <Text
-                          style={{
-                            fontSize: 14,
-                            color: colors.textSecondary,
-                          }}
-                        >
-                          {pdf.level}
+                          📄
                         </Text>
                       </View>
                     </View>
-                    <View
-                      style={{
-                        backgroundColor: `${colors.primary}20`,
-                        padding: 12,
-                        borderRadius: 8,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 24,
-                          color: colors.primary,
-                        }}
-                      >
-                        📄
-                      </Text>
-                    </View>
-                  </View>
 
-                  <View style={{ marginBottom: 16 }}>
-                    <Text
-                      style={{
-                        fontSize: 14,
-                        color: colors.textSecondary,
-                        marginBottom: 8,
-                      }}
-                    >
-                      <Text style={{ fontWeight: "500" }}>Topic:</Text> {pdf.topic}
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 14,
-                        color: colors.textSecondary,
-                        marginBottom: 8,
-                      }}
-                    >
-                      <Text style={{ fontWeight: "500" }}>Year:</Text> {pdf.year}
-                    </Text>
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        marginBottom: 8,
-                      }}
-                    >
-                      <Text style={{ marginRight: 4 }}>📅</Text>
+                    <View style={{ marginBottom: 16 }}>
                       <Text
                         style={{
                           fontSize: 14,
                           color: colors.textSecondary,
+                          marginBottom: 8,
                         }}
                       >
-                        {formatDate(pdf.uploadDate)}
+                        <Text style={{ fontWeight: "500" }}>Topic:</Text> {pdf.topic}
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          color: colors.textSecondary,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <Text style={{ fontWeight: "500" }}>Year:</Text> {pdf.year}
+                      </Text>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <Text style={{ marginRight: 4 }}>📅</Text>
+                        <Text
+                          style={{
+                            fontSize: 14,
+                            color: colors.textSecondary,
+                          }}
+                        >
+                          {formatDate(pdf.uploadDate)}
+                        </Text>
+                      </View>
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          color: colors.textSecondary,
+                        }}
+                      >
+                        {formatFileSize(pdf.fileSize)}
                       </Text>
                     </View>
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        color: colors.textSecondary,
-                      }}
-                    >
-                      {formatFileSize(pdf.fileSize)}
-                    </Text>
-                  </View>
 
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <TouchableOpacity
-                      onPress={() => handleDownload(pdf._id, pdf.fileName)}
-                      disabled={checkingPayment}
-                      style={{
-                        flex: 1,
-                        backgroundColor: hasDownloadAccess ? `${colors.primary}20` : `#f59e0b20`,
-                        borderWidth: 1,
-                        borderColor: hasDownloadAccess ? `${colors.primary}40` : `#f59e0b40`,
-                        borderRadius: 8,
-                        paddingVertical: 12,
-                        paddingHorizontal: 16,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 4,
-                        opacity: checkingPayment ? 0.6 : 1,
-                      }}
-                    >
-                      {checkingPayment ? (
-                        <ActivityIndicator size="small" color={colors.primary} />
-                      ) : (
-                        <>
-                          <Text>{hasDownloadAccess ? "⬇️" : "💳"}</Text>
-                          <Text
-                            style={{
-                              fontSize: 14,
-                              fontWeight: "500",
-                              color: hasDownloadAccess ? colors.primary : "#f59e0b",
-                            }}
-                          >
-                            {hasDownloadAccess ? "Download" : "Pay to Download"}
-                          </Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <TouchableOpacity
+                        onPress={() => handleDownload(pdf._id, pdf.fileName)}
+                        disabled={isDownloading}
+                        style={{
+                          flex: 1,
+                          backgroundColor: hasDownloadAccess ? `${colors.primary}20` : `#f59e0b20`,
+                          borderWidth: 1,
+                          borderColor: hasDownloadAccess ? `${colors.primary}40` : `#f59e0b40`,
+                          borderRadius: 8,
+                          paddingVertical: 12,
+                          paddingHorizontal: 16,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 4,
+                          opacity: isDownloading ? 0.6 : 1,
+                        }}
+                      >
+                        {isDownloading ? (
+                          <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                          <>
+                            <Text>{hasDownloadAccess ? "⬇️" : "💳"}</Text>
+                            <Text
+                              style={{
+                                fontSize: 14,
+                                fontWeight: "500",
+                                color: hasDownloadAccess ? colors.primary : "#f59e0b",
+                              }}
+                            >
+                              {hasDownloadAccess ? "Download" : "Pay to Download"}
+                            </Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                </View>
-              ))}
+                )
+              })}
             </View>
           )}
         </View>
