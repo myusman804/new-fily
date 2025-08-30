@@ -104,7 +104,7 @@ const verifyOTP = async (req, res) => {
         name: user.name,
         email: user.email,
         coins: user.coins,
-        hasUploadAccess: user.hasUploadAccess,
+        hasPaidForUpload: user.hasPaidForUpload,
       },
     })
   } catch (error) {
@@ -189,7 +189,7 @@ const login = async (req, res) => {
         name: user.name,
         email: user.email,
         coins: user.coins,
-        hasUploadAccess: user.hasUploadAccess,
+        hasPaidForUpload: user.hasPaidForUpload,
       },
     })
   } catch (error) {
@@ -215,7 +215,7 @@ const dashboard = async (req, res) => {
         name: user.name,
         email: user.email,
         coins: user.coins,
-        hasUploadAccess: user.hasUploadAccess,
+        hasPaidForUpload: user.hasPaidForUpload,
         uploadCount: user.uploadCount,
         maxUploads: user.maxUploads,
       },
@@ -257,22 +257,24 @@ const changePassword = async (req, res) => {
 const updateUploadPaymentStatus = async (req, res) => {
   try {
     const userId = req.user.id
-
-    // Update user's payment status for upload access
-    const user = await User.findByIdAndUpdate(userId, { hasPaidForUpload: true }, { new: true })
+    const user = await User.findById(userId)
 
     if (!user) {
       return res.status(404).json({ message: "User not found" })
     }
 
-    console.log(`[v0] Updated payment status for user ${userId}:`, user.hasPaidForUpload)
+    // Update user's upload payment status
+    user.hasPaidForUpload = true
+    user.uploadPaymentDate = new Date()
+    await user.save()
 
     res.json({
-      message: "Payment status updated successfully",
+      success: true,
+      message: "Upload payment status updated successfully",
       hasPaidForUpload: user.hasPaidForUpload,
     })
   } catch (error) {
-    console.error("[v0] Update payment status error:", error)
+    console.error("Error updating upload payment status:", error)
     res.status(500).json({ message: "Server error" })
   }
 }

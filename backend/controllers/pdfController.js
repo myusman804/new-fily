@@ -456,13 +456,134 @@ const searchAllPDFs = async (req, res) => {
   }
 }
 
+// Download PDF
+const downloadPDF = async (req, res) => {
+  try {
+    const pdfId = req.params.id
+    const userId = req.user.id
+
+    // Find the PDF
+    const pdf = await PDF.findById(pdfId)
+    if (!pdf) {
+      return res.status(404).json({ message: "PDF not found" })
+    }
+
+    if (pdf.status !== "completed") {
+      return res.status(400).json({ message: "PDF not available for download" })
+    }
+
+    // Check if user owns the PDF (free download for own files)
+    if (pdf.userId.toString() === userId) {
+      console.log("[v0] User downloading own PDF - free access")
+    } else {
+      // Check if user has paid for download access
+      const user = await User.findById(userId)
+      if (!user.hasPaidForDownload) {
+        return res.status(403).json({
+          message: "Download access required. Please complete payment to download PDFs from other users.",
+          requiresPayment: true,
+          pdfPrice: pdf.price,
+        })
+      }
+
+      // Update download count
+      user.downloadCount = (user.downloadCount || 0) + 1
+      await user.save()
+      console.log("[v0] User downloaded PDF - count updated:", user.downloadCount)
+    }
+
+    // Convert base64 back to buffer and send file
+    const fileBuffer = Buffer.from(pdf.fileData, "base64")
+
+    res.setHeader("Content-Type", pdf.mimeType || "application/pdf")
+    res.setHeader("Content-Disposition", `attachment; filename="${pdf.originalName}"`)
+    res.setHeader("Content-Length", fileBuffer.length)
+
+    res.send(fileBuffer)
+  } catch (error) {
+    console.error("Download PDF error:", error)
+    res.status(500).json({ message: "Server error downloading file" })
+  }
+}
+
+// Update download payment status
+const updateDownloadPaymentStatus = async (req, res) => {
+  try {
+    const userId = req.user.id
+    const { paymentStatus, transactionId } = req.body
+
+    if (paymentStatus !== "completed") {
+      return res.status(400).json({ message: "Invalid payment status" })
+    }
+
+    const user = await User.findById(userId)
+    if (!user) {
+      return res.status(404).json({ message: "User not found" })
+    }
+
+    if (user.hasPaidForDownload) {
+      return res.status(400).json({ message: "Download access already activated" })
+    }
+
+    // Update user's download payment status
+    user.hasPaidForDownload = true
+    user.downloadPaymentDate = new Date()
+    await user.save()
+
+    console.log(`[v0] User ${userId} download payment completed - transactionId: ${transactionId}`)
+
+    res.status(200).json({
+      message: "Download access activated successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        hasPaidForDownload: user.hasPaidForDownload,
+        downloadCount: user.downloadCount || 0,
+        downloadPaymentDate: user.downloadPaymentDate || null,
+      },
+    })
+  } catch (error) {
+    console.error("Update download payment status error:", error)
+    res.status(500).json({ message: "Server error updating payment status" })
+  }
+}
+
+// Check download payment status
+const checkDownloadPaymentStatus = async (req, res) => {
+  try {
+    const userId = req.user.id
+
+    const user = await User.findById(userId).select("hasPaidForDownload downloadCount downloadPaymentDate")
+    if (!user) {
+      return res.status(404).json({ message: "User not found" })
+    }
+
+    res.status(200).json({
+      message: "Download payment status retrieved",
+      hasPaidForDownload: user.hasPaidForDownload || false,
+      downloadCount: user.downloadCount || 0,
+      downloadPaymentDate: user.downloadPaymentDate || null,
+    })
+  } catch (error) {
+    console.error("Check download payment status error:", error)
+    res.status(500).json({
+      message: "Server error checking payment status",
+      error: error.message,
+    })
+  }
+}
+
 module.exports = {
   upload,
   uploadPDF,
   getUserPDFs,
-  getAllPDFs, // Added getAllPDFs to exports
+  getAllPDFs,
   searchPDFs,
-  searchAllPDFs, // Added searchAllPDFs to exports
+  searchAllPDFs,
   deletePDF,
   getPDFDownloadLink,
+  downloadPDF,
+  updateDownloadPaymentStatus,
+  checkDownloadPaymentStatus,
 }

@@ -9,6 +9,8 @@ const {
   searchAllPDFs, // Added searchAllPDFs import
   deletePDF,
   getPDFDownloadLink,
+  downloadPDF,
+  updateDownloadPaymentStatus,
 } = require("../controllers/pdfController")
 const authController = require("../controllers/authController")
 
@@ -21,6 +23,8 @@ router.get("/search", authMiddleware, searchPDFs)
 router.get("/search-all", authMiddleware, searchAllPDFs) // Added route to search all PDFs
 router.delete("/:id", authMiddleware, deletePDF)
 router.get("/download/:id", authMiddleware, getPDFDownloadLink)
+router.get("/download-paid/:id", authMiddleware, downloadPDF) // Added new download route with payment verification
+router.post("/update-download-payment-status", authMiddleware, updateDownloadPaymentStatus)
 
 router.post("/update-payment-status", authMiddleware, authController.updateUploadPaymentStatus)
 

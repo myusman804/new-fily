@@ -9,12 +9,19 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
-  Linking,
   RefreshControl,
+  Platform,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useTheme } from "@/components/theme-context"
-import { getPdfApiUrl, getAuthToken, getAllPdfs, searchAllPdfs, deletePdf } from "@/lib/api"
+import {
+  getAllPdfs,
+  searchAllPdfs,
+  deletePdf,
+  checkDownloadPaymentStatus,
+  processDownloadPayment,
+  downloadPaidPdf,
+} from "@/lib/api"
 
 interface PDF {
   _id: string
@@ -41,7 +48,26 @@ export default function OverviewPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedFilter, setSelectedFilter] = useState<string>("all")
+  const [hasDownloadAccess, setHasDownloadAccess] = useState(false)
+  const [checkingPayment, setCheckingPayment] = useState(false)
   const { colors } = useTheme()
+
+  const checkPaymentStatus = async () => {
+    try {
+      console.log("[v0] Checking payment status...")
+      const response = await checkDownloadPaymentStatus()
+      console.log("[v0] Payment status response:", response)
+
+      if (!response.error) {
+        setHasDownloadAccess(response.hasPaid || response.hasPaidForDownload || false)
+        console.log("[v0] Download access status:", response.hasPaid || response.hasPaidForDownload)
+      } else {
+        console.log("[v0] Payment status check failed:", response.message)
+      }
+    } catch (error) {
+      console.error("[v0] Error checking payment status:", error)
+    }
+  }
 
   const fetchPdfs = async () => {
     try {
@@ -109,23 +135,110 @@ export default function OverviewPage() {
   }
 
   const handleDownload = async (pdfId: string, fileName: string) => {
-    try {
-      const token = await getAuthToken()
-      const downloadUrl = `${getPdfApiUrl()}/download/${pdfId}?token=${token}`
-
-      Alert.alert("Download PDF", `Download ${fileName}?`, [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Download",
-          onPress: () => {
-            Linking.openURL(downloadUrl).catch(() => {
-              Alert.alert("Error", "Unable to open download link")
-            })
+    if (!hasDownloadAccess) {
+      Alert.alert(
+        "Download Access Required",
+        "You need to purchase download access to download PDFs from other users. This is a one-time payment of $9.99.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Purchase Access",
+            onPress: () => handlePurchaseDownloadAccess(),
           },
-        },
-      ])
+        ],
+      )
+      return
+    }
+
+    try {
+      setCheckingPayment(true)
+      console.log("[v0] Starting download for PDF:", pdfId)
+
+      const downloadResult = await downloadPaidPdf(pdfId)
+
+      if (Platform.OS === "web") {
+        // Web platform - use blob URL
+        const url = URL.createObjectURL(downloadResult.blob)
+        const link = document.createElement("a")
+        link.href = url
+        link.download = downloadResult.filename
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+      } else {
+        // React Native - show success message and handle file appropriately
+        Alert.alert(
+          "Download Started",
+          `${downloadResult.filename} (${formatFileSize(downloadResult.size)}) download initiated.`,
+          [{ text: "OK" }],
+        )
+
+        // For React Native, you would typically use react-native-fs or similar
+        // to save the file to the device's download folder
+        console.log("[v0] File downloaded successfully:", downloadResult.filename)
+      }
     } catch (error) {
-      Alert.alert("Download Failed", "Unable to download the PDF")
+      console.error("[v0] Download error:", error)
+
+      if (error instanceof Error) {
+        if (error.message.includes("Download access required")) {
+          Alert.alert("Payment Required", "You need to purchase download access first.", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Purchase", onPress: () => handlePurchaseDownloadAccess() },
+          ])
+        } else {
+          Alert.alert("Download Failed", error.message)
+        }
+      } else {
+        Alert.alert("Download Failed", "Unable to download the PDF")
+      }
+    } finally {
+      setCheckingPayment(false)
+    }
+  }
+
+  const handlePurchaseDownloadAccess = async () => {
+    try {
+      setCheckingPayment(true)
+
+      Alert.alert(
+        "Confirm Purchase",
+        "Purchase download access for $9.99? This will allow you to download all PDFs from other users.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Purchase",
+            onPress: async () => {
+              try {
+                const response = await processDownloadPayment({
+                  amount: 9.99,
+                  currency: "USD",
+                })
+
+                if (response.error) {
+                  throw new Error(response.message)
+                }
+
+                setHasDownloadAccess(true)
+                Alert.alert(
+                  "Success!",
+                  "Download access purchased successfully! You can now download PDFs from other users.",
+                  [{ text: "OK" }],
+                )
+              } catch (error) {
+                console.error("Payment error:", error)
+                Alert.alert("Payment Failed", "Unable to process payment. Please try again.")
+              }
+            },
+          },
+        ],
+      )
+    } catch (error) {
+      console.error("Purchase error:", error)
+      Alert.alert("Error", "Unable to process purchase")
+    } finally {
+      setCheckingPayment(false)
     }
   }
 
@@ -164,7 +277,6 @@ export default function OverviewPage() {
 
     const date = new Date(dateString)
 
-    // Check if date is valid
     if (isNaN(date.getTime())) {
       console.log("[v0] Invalid date string:", dateString)
       return "Invalid date"
@@ -196,10 +308,12 @@ export default function OverviewPage() {
   const onRefresh = () => {
     setRefreshing(true)
     fetchPdfs()
+    checkPaymentStatus()
   }
 
   useEffect(() => {
     fetchPdfs()
+    checkPaymentStatus()
   }, [])
 
   if (loading) {
@@ -234,7 +348,6 @@ export default function OverviewPage() {
         backgroundColor: colors.background,
       }}
     >
-      {/* Header */}
       <View
         style={{
           borderBottomWidth: 1,
@@ -262,14 +375,12 @@ export default function OverviewPage() {
       </View>
 
       <ScrollView style={{ flex: 1 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-        {/* Search and Filter Section */}
         <View
           style={{
             backgroundColor: colors.cardBackground,
             padding: 16,
           }}
         >
-          {/* Search Bar */}
           <View
             style={{
               position: "relative",
@@ -294,7 +405,6 @@ export default function OverviewPage() {
             />
           </View>
 
-          {/* Filter Chips */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
             <View style={{ flexDirection: "row", gap: 12 }}>
               {getFilterOptions().map((option) => (
@@ -324,7 +434,6 @@ export default function OverviewPage() {
           </ScrollView>
         </View>
 
-        {/* PDF List */}
         <View style={{ padding: 16 }}>
           {filteredPdfs.length === 0 ? (
             <View
@@ -375,7 +484,6 @@ export default function OverviewPage() {
                     elevation: 3,
                   }}
                 >
-                  {/* Card Header */}
                   <View
                     style={{
                       flexDirection: "row",
@@ -480,7 +588,6 @@ export default function OverviewPage() {
                     </View>
                   </View>
 
-                  {/* Card Content */}
                   <View style={{ marginBottom: 16 }}>
                     <Text
                       style={{
@@ -527,15 +634,15 @@ export default function OverviewPage() {
                     </Text>
                   </View>
 
-                  {/* Action Buttons */}
                   <View style={{ flexDirection: "row", gap: 8 }}>
                     <TouchableOpacity
                       onPress={() => handleDownload(pdf._id, pdf.fileName)}
+                      disabled={checkingPayment}
                       style={{
                         flex: 1,
-                        backgroundColor: `${colors.primary}20`,
+                        backgroundColor: hasDownloadAccess ? `${colors.primary}20` : `#f59e0b20`,
                         borderWidth: 1,
-                        borderColor: `${colors.primary}40`,
+                        borderColor: hasDownloadAccess ? `${colors.primary}40` : `#f59e0b40`,
                         borderRadius: 8,
                         paddingVertical: 12,
                         paddingHorizontal: 16,
@@ -543,18 +650,25 @@ export default function OverviewPage() {
                         alignItems: "center",
                         justifyContent: "center",
                         gap: 4,
+                        opacity: checkingPayment ? 0.6 : 1,
                       }}
                     >
-                      <Text>⬇️</Text>
-                      <Text
-                        style={{
-                          fontSize: 14,
-                          fontWeight: "500",
-                          color: colors.primary,
-                        }}
-                      >
-                        Pay to Download
-                      </Text>
+                      {checkingPayment ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : (
+                        <>
+                          <Text>{hasDownloadAccess ? "⬇️" : "💳"}</Text>
+                          <Text
+                            style={{
+                              fontSize: 14,
+                              fontWeight: "500",
+                              color: hasDownloadAccess ? colors.primary : "#f59e0b",
+                            }}
+                          >
+                            {hasDownloadAccess ? "Download" : "Pay to Download"}
+                          </Text>
+                        </>
+                      )}
                     </TouchableOpacity>
                   </View>
                 </View>

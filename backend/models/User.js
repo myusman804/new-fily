@@ -1,65 +1,66 @@
 const mongoose = require("mongoose")
 
-const UserSchema = new mongoose.Schema(
+const userSchema = new mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
+      trim: true,
     },
     email: {
       type: String,
       required: true,
       unique: true,
+      lowercase: true,
+      trim: true,
     },
     password: {
       type: String,
       required: true,
     },
-    otp: {
-      type: String,
-    },
-    otpExpiry: {
-      type: Date,
-    },
     isVerified: {
       type: Boolean,
       default: false,
     },
-    coins: {
-      type: Number,
-      default: 5,
+    otp: {
+      type: String,
+    },
+    otpExpires: {
+      type: Date,
     },
     hasPaidForUpload: {
       type: Boolean,
       default: false,
     },
-    totalPDFsUploaded: {
+    hasPaidForDownload: {
+      type: Boolean,
+      default: false,
+    },
+    uploadCount: {
       type: Number,
       default: 0,
     },
-    totalStorageUsed: {
+    downloadCount: {
       type: Number,
-      default: 0, // in bytes
+      default: 0,
     },
-    uploadLimitMB: {
+    coins: {
       type: Number,
-      default: 100, // 100MB default limit
+      default: 0,
     },
-    // Additional fields can be added here
+    downloadPaymentDate: {
+      type: Date,
+    },
+    downloadTransactionId: {
+      type: String,
+    },
+    stripeCustomerId: {
+      type: String,
+    },
   },
   {
     timestamps: true,
   },
 )
 
-// Index for better query performance
-UserSchema.index({ isVerified: 1 })
-
-// Additional methods or hooks can be added here
-UserSchema.methods.verifyUser = function () {
-  this.isVerified = true
-  this.save()
-}
-
-const User = mongoose.model("User", UserSchema)
-module.exports = User
+module.exports = mongoose.model("User", userSchema)

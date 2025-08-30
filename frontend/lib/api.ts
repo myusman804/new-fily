@@ -1,5 +1,4 @@
-import { getAuthToken } from "./auth-storage"
-
+import { getAuthToken } from "../lib/auth-storage" // Assuming
 const BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.98.122:3000"
 
 async function makeRequestWithTimeout(url: string, options: RequestInit, timeoutMs = 10000) {
@@ -64,6 +63,10 @@ export function getBaseApiUrl(): string {
 
 export function getPdfApiUrl(): string {
   return `${BACKEND_BASE_URL}/api/pdf`
+}
+
+export function getPaymentApiUrl(): string {
+  return `${BACKEND_BASE_URL}/api/payment`
 }
 
 export async function registerUser(data: { name: string; email: string; password: string }) {
@@ -230,13 +233,139 @@ export async function uploadPdf(formData: FormData) {
 
 export async function updateUploadPaymentStatus() {
   const token = await getAuthToken()
+  if (!token) {
+    console.log("[v0] No auth token found for upload payment")
+    return { error: true, message: "Please login again" }
+  }
+
+  console.log("[v0] Making upload payment request with token:", token.substring(0, 20) + "...")
   return makeRequest(`${getBaseApiUrl()}/update-upload-payment-status`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
+      Authorization: `Bearer ${token}`,
     },
   })
 }
 
-export { getAuthToken } from "./auth-storage"
+export const processDownloadPayment = async (paymentData: { amount: number; currency?: string }) => {
+  try {
+    const token = await getAuthToken()
+    console.log("[v0] processDownloadPayment - Token retrieved:", token ? token.substring(0, 20) + "..." : "No token")
+
+    if (!token) {
+      console.log("[v0] processDownloadPayment - No auth token found")
+      return { error: true, message: "Please login again" }
+    }
+
+    console.log("[v0] processDownloadPayment - Making request to:", `${getPaymentApiUrl()}/download`)
+    const response = await fetch(`${getPaymentApiUrl()}/download`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(paymentData),
+    })
+
+    console.log("[v0] processDownloadPayment - Response status:", response.status)
+    const data = await response.json()
+    console.log("[v0] processDownloadPayment - Response data:", data)
+    return data
+  } catch (error) {
+    console.error("[v0] processDownloadPayment - Error:", error)
+    return { error: true, message: "Failed to process payment" }
+  }
+}
+
+export const getDownloadPaymentInfo = async () => {
+  try {
+    const token = await getAuthToken()
+    const response = await fetch(`${getPaymentApiUrl()}/download-info`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    })
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error("Error getting download payment info:", error)
+    return { error: true, message: "Failed to get payment info" }
+  }
+}
+
+export const checkDownloadPaymentStatus = async () => {
+  try {
+    const token = await getAuthToken()
+    console.log(
+      "[v0] checkDownloadPaymentStatus - Token retrieved:",
+      token ? token.substring(0, 20) + "..." : "No token",
+    )
+
+    if (!token) {
+      console.log("[v0] checkDownloadPaymentStatus - No auth token found")
+      return { error: true, message: "Please login again" }
+    }
+
+    const response = await fetch(`${getPaymentApiUrl()}/download-status`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    })
+
+    console.log("[v0] checkDownloadPaymentStatus - Response status:", response.status)
+    const data = await response.json()
+    console.log("[v0] checkDownloadPaymentStatus - Response data:", data)
+
+    return {
+      ...data,
+      hasPaid: data.hasPaidForDownload, // Map backend property to frontend expectation
+    }
+  } catch (error) {
+    console.error("[v0] checkDownloadPaymentStatus - Error:", error)
+    return { error: true, message: "Failed to check payment status" }
+  }
+}
+
+export const downloadPaidPdf = async (pdfId: string) => {
+  try {
+    const token = await getAuthToken()
+    console.log("[v0] downloadPaidPdf - Starting download for PDF:", pdfId)
+
+    const response = await fetch(`${getPdfApiUrl()}/download-paid/${pdfId}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    console.log("[v0] downloadPaidPdf - Response status:", response.status)
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      console.log("[v0] downloadPaidPdf - Error response:", errorData)
+      throw new Error(errorData.message || "Download failed")
+    }
+
+    const blob = await response.blob()
+    const contentDisposition = response.headers.get("Content-Disposition")
+    const filename = contentDisposition
+      ? contentDisposition.split("filename=")[1]?.replace(/"/g, "")
+      : `document_${pdfId}.pdf`
+
+    console.log("[v0] downloadPaidPdf - Download successful, filename:", filename)
+
+    return {
+      blob,
+      filename,
+      size: blob.size,
+    }
+  } catch (error) {
+    console.error("[v0] downloadPaidPdf - Error:", error)
+    throw error
+  }
+}
